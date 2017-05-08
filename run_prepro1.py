@@ -1,12 +1,12 @@
 import mne
 import numpy as np
 import os.path as op
-from etg_scalp_info import study_path, data_path, log_path, sujetos, sesiones, bad_channs, ch_to_remove, marks, n_jobs
+from etg_scalp_info import study_path, data_path, log_path, subjects, sessions, bad_channs, ch_to_remove, marks, n_jobs
 from eeg_etg_fxs import read_log_file, check_events, durations_from_log, create_events, add_event_condition
 
 
 def run_prepro(subj):
-    ses_x_subj = sesiones[subj]
+    ses_x_subj = sessions[subj]
     for ses in ses_x_subj:
         archivo = 'etg_su{}_se{}' .format(subj, ses)
         full_path = op.join(data_path, archivo + '.bdf')
@@ -91,7 +91,7 @@ def run_prepro(subj):
 
 # sujetos = '9'
 
-for subject in sujetos:
+for subject in subjects:
     run_prepro(subject)
 
 

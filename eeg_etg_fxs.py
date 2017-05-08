@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.io as spio
 import pandas as pd
+import mne
 
 
 def check_events(events):
@@ -67,7 +68,8 @@ def add_event_condition(events_updated, log):
                           else 7 if tr['Order'] == 1 and tr['Standard'] > tr['Comparison']
                           else 7 if tr['Order'] == 2 and tr['Standard'] < tr['Comparison']
                           else 9])
-    ev_conditions = [exp_t if cond == 1 else exp_t + 10 for exp_t, cond in zip(exp_types, conds)]
+    ev_conditions = [exp_t if cond == 1 else exp_t * 10 for exp_t, cond in zip(exp_types, conds)]
+    log['condition'] = ev_conditions
     print('Number of trials : {}' .format(len(ev_conditions)))
 
     indices_1 = [i for i, x in enumerate(events_updated[:, 2]) if x == 1]
@@ -88,7 +90,7 @@ def add_event_condition(events_updated, log):
             events_updated[indices_1[idx], 2] *= 10
             events_updated[indices_2[idx], 2] *= 10
             events_updated[indices_3[idx], 2] *= 10
-    return events_updated
+    return events_updated, log
 
 
 def read_log_file(log_filename):
@@ -104,3 +106,41 @@ def read_log_file(log_filename):
     return log
 
 
+def check_events_and_log(events, log):
+    print('Events s1:', len(events[events[:, 2] == 1]))
+    print('Events s2:', len(events[events[:, 2] == 2]))
+    print('Events exp:', len(events[events[:, 2] == 3]))
+    print('Trials log:', len(log))
+    if len(log) != len(events[events[:, 2] == 3]):
+        raise ValueError('Unequal nr of events in eeg and log')
+
+
+def add_event_tr_id(events):
+    tr_id = -1
+    tr_list = list()
+    for ev in events:
+        if ev[2] in (1, 10):
+            tr_id += 1
+        tr_list.append(tr_id)
+    events_tr_id = np.column_stack((events, np.array(tr_list)))
+    return events_tr_id
+
+
+def make_exp_baseline(exp, pre_trial, events_tr_id, log, marks):
+    exp_ids = events_tr_id[exp.selection, 3]
+    pre_ids = events_tr_id[pre_trial.selection, 3]
+
+    complete_tr_id = exp_ids[np.in1d(exp_ids, pre_ids)]
+    exp_ids_complete = np.in1d(exp_ids, pre_ids)
+    pre_ids_complete = np.in1d(pre_ids, exp_ids)
+
+    exp_dat = exp._data[exp_ids_complete, :, :]
+    pre_dat = pre_trial._data[pre_ids_complete, :, :]
+    new_dat = np.concatenate((pre_dat, exp_dat), axis=2)
+
+    conds = log['condition'].iloc[complete_tr_id]
+
+    events = np.vstack((np.arange(0, len(conds)), np.zeros(len(conds)), conds)).transpose().astype(int)
+    exp_ok = mne.EpochsArray(new_dat, info=exp.info, events=events, event_id=marks, tmin=-0.95)
+
+    return exp_ok, complete_tr_id

@@ -16,7 +16,6 @@ cond = 1
 
 file = op.join(dat_path, 'set', files[subj][cond] + '.set')
 raw = mne.io.read_raw_eeglab(file, preload=True)
-raw = mne.io.read_epochs(file, preload=True)
 
 
 notchs = np.arange(50, 151, 50)
@@ -37,7 +36,7 @@ new_events = create_events(events, durations, raw.info['sfreq'])
 raw.add_events(new_events)
 events_updated = mne.find_events(raw, shortest_event=1)
 events_updated = check_events(events_updated)
-events_updated = add_event_condition(events_updated, log)
+events_updated, log = add_event_condition(events_updated, log)
 
 # Epoch
 t_min = -0.7
@@ -45,7 +44,7 @@ t_max = 0.7
 baseline = (None, None)
 event_id = marks
 epoch = mne.Epochs(raw, events_updated, event_id=event_id,
-                   tmin=t_min, tmax=t_max, baseline=None,
+                   tmin=t_min, tmax=t_max, baseline=baseline,
                    preload=True)
 
 exp_ready = epoch['exp_short_smaller', 'exp_long_smaller', 'exp_short_bigger', 'exp_long_bigger']
@@ -75,7 +74,7 @@ picks = [27, 95, 103]
 # Time-Frequency
 freqs = np.arange(10, 121, 1)  # define frequencies of interest
 n_cycles = 5.  # different number of cycle per frequency
-power = tfr_morlet(exp_sho_sma, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=False,
+power = tfr_morlet(exp_lo_big, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=False,
                    return_itc=False, decim=3, n_jobs=n_jobs, picks=picks)
 
 for c in range(len(picks)):
@@ -84,13 +83,14 @@ for c in range(len(picks)):
 
 
 power_bs = power.copy()
-power_bs.apply_baseline(mode='logratio', baseline=(-0.7, -0.4))
+power_bs.apply_baseline(mode='logratio', baseline=(-0.7, -0))
 
 # power_bs.apply_baseline(mode='logratio', baseline=(-0.7, -0.4)).average().plot([1], fmin=1, fmax=120, tmin=-0.6, tmax=0.6, vmax=0.5, vmin=-0.5)
 # power.average().apply_baseline(mode='logratio', baseline=(-0.7, -0.4)).plot([1], fmin=1, fmax=120, tmin=-0.6, tmax=0.6, vmax=0.5, vmin=-0.5)
 
 
 power_bs.average().plot([1])
+
 power_bs.crop(-0.4, None)
 
 epochs_power = power_bs.data[:, 1, :, :]

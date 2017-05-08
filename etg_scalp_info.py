@@ -4,10 +4,12 @@ log_path = '/Users/lpen/Documents/Experimentos/Drowsy Time/TimeGeneralization/an
 
 n_jobs = 2
 
-sujetos = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '20', '21', '22']
+subjects = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '20', '21', '22']
+#subjects = ['2', '3', '5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '17', '18', '20', '21', '22']
 
 
-sesiones = {'1': ('1', '2'),
+
+sessions = {'1': ('1', '2'),
             '2': ('1', '2', '3'),
             '3': ('1', '2', '3'),
             '4': ('3', ),
@@ -56,7 +58,9 @@ bad_channs = {'1': ['A1', 'A12', 'A18', 'A25', 'A26', 'A30', 'B9', 'C24', 'C25',
               '22': ['B1', 'B19']
               }
 
-ch_to_remove = ['EXG1', 'EXG2', 'EXG3', 'EXG4', 'EXG5', 'EXG6', 'EXG7', 'EXG8']
+externals = ['EXG1', 'EXG2', 'EXG3', 'EXG4', 'EXG5', 'EXG6', 'EXG7', 'EXG8']
 
 marks = {'s1_short': 1, 's2_short': 2, 'exp_short_smaller': 7, 'exp_short_equal': 8, 'exp_short_bigger': 9,
          's1_long': 10, 's2_long': 20, 'exp_long_smaller': 70, 'exp_long_equal': 80, 'exp_long_bigger': 90}
+
+reject = {'eeg': 120e-6}
