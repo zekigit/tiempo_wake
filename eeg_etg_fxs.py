@@ -2,6 +2,7 @@ import numpy as np
 import scipy.io as spio
 import pandas as pd
 import mne
+from scipy.stats import ttest_rel
 
 
 def check_events(events):
@@ -144,3 +145,17 @@ def make_exp_baseline(exp, pre_trial, events_tr_id, log, marks):
     exp_ok = mne.EpochsArray(new_dat, info=exp.info, events=events, event_id=marks, tmin=-0.95)
 
     return exp_ok, complete_tr_id
+
+
+def permutation_t_test(a, b, n_perm):
+    t_real, p_real = ttest_rel(a, b)
+
+    t_list = list()
+    for per in range(n_perm):
+        joint = np.concatenate((a, b))
+        np.random.shuffle(joint)
+        split = np.split(joint, 2)
+        t_perm, p_perm = ttest_rel(split[0], split[1])
+        t_list.append(t_perm)
+    p_permuted = len(np.where(t_list > t_real)) / n_perm
+    return t_real, t_list, p_permuted

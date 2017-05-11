@@ -4,6 +4,8 @@ import os.path as op
 from etg_scalp_info import study_path, data_path, log_path, subjects, sessions, bad_channs, n_jobs
 from eeg_etg_fxs import read_log_file, check_events, durations_from_log, create_events, check_events_and_log
 
+subj = '16'
+
 
 def run_prepro(subj):
     ses_x_subj = sessions[subj]
@@ -50,6 +52,7 @@ def run_prepro(subj):
         raw_cat = raw
         logs = log
 
+    del all_ses
     events = mne.find_events(raw_cat)
     events = check_events(events)
     # mne.viz.plot_events(events)
@@ -71,11 +74,12 @@ def run_prepro(subj):
     raw.apply_proj()
 
     raw.filter(l_freq=0.1, h_freq=40, filter_length='auto', l_trans_bandwidth='auto', h_trans_bandwidth='auto', n_jobs=n_jobs)
+    raw.plot(events, n_channels=128, duration=20, scalings={'eeg': 40e-6})
 
     # ICA
-    reject = {'eeg': 120e-6}
+    reject = {'eeg': 250e-6}
     n_components = 20
-    method = 'infomax'
+    method = 'extended-infomax'
     decim = 4
     ica = mne.preprocessing.ICA(n_components=n_components, method=method)
     ica.fit(raw_cat, picks=picks_eeg, decim=decim, reject=reject)
@@ -91,8 +95,9 @@ def run_prepro(subj):
 
     raw_cat.interpolate_bads()
 
-    raw_cat.save(op.join(study_path, 'fif',  '{}_prep-raw.fif' .format(subj)))
+    raw_cat.save(op.join(study_path, 'fif',  '{}_prep-raw.fif' .format(subj)), overwrite=True)
     logs.to_csv(op.join(study_path, 'logs',  '{}_prep-raw.csv' .format(subj)))
+    del raw_cat
     print('\n' * 4)
 
 if __name__ == '__main__':
