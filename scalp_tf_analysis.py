@@ -1,9 +1,8 @@
 import mne
 import os.path as op
 import numpy as np
-from mne.time_frequency import tfr_morlet, tfr_multitaper, tfr_stockwell
-from mne.stats import permutation_cluster_1samp_test
-from etg_scalp_info import study_path, subjects, n_jobs, ROI_d, ROI_i
+from mne.time_frequency import tfr_morlet
+from etg_scalp_info import study_path, subjects, n_jobs, ROI_d, ROI_i, rois
 from eeg_etg_fxs import permutation_t_test
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -52,9 +51,10 @@ fmin = 8
 fmax = 12
 tmin = -0.1
 tmax = 0.1
-ROI = natsorted(np.union1d(ROI_d, ROI_i))
 fq_mask = (freqs >= fmin) & (freqs <= fmax)
 t_mask = (power.times >= tmin) & (power.times <= tmax)
+
+ROI = natsorted(np.union1d(ROI_d, ROI_i))
 ch_mask = np.in1d(power.info['ch_names'], ROI)
 ROI_chans = mne.pick_channels(power.info['ch_names'], ROI)
 ROI_power = np.mean(power.apply_baseline(mode='zscore', baseline=(bs_min, bs_max)).data[ch_mask, :, :][:, fq_mask, :][:, :, t_mask], axis=(1, 2))
@@ -62,13 +62,13 @@ chan = ROI[np.argmax(ROI_power)]
 print('Selected channel: ', chan)
 
 # Calculate Power per Subject
-ch = mne.pick_channels(power.info['ch_names'], [chan])
+ch = mne.pick_channels(power.info['ch_names'], ['B15'])
 pows_sho_z = list()
 pows_lon_z = list()
 pows_sho = list()
 pows_lon = list()
 
-for ix, cond in enumerate([exp_sho, exp_lon]):
+for ix, cond in enumerate([exp_lon, exp_sho]):
     pow_fig, axes = plt.subplots(nrows=4, ncols=4, sharey=True, sharex=True, figsize=(8, 10))
     for s, ax in zip(cond, axes.flat):
         power_subj = tfr_morlet(s, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
@@ -93,11 +93,6 @@ for ix, cond in enumerate([exp_sho, exp_lon]):
 
 
 # Stats - Between Conditions
-fmin = 8
-fmax = 12
-tmin = -0.1
-tmax = 0.1
-fq_mask = (freqs >= fmin) & (freqs <= fmax)
 pow_lon_win = [np.mean(p.crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :]) for p in pows_lon_z]
 pow_sho_win = [np.mean(p.crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :]) for p in pows_sho_z]
 
@@ -139,32 +134,29 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
 print('permuted p =', p_permuted)
 
 
-# ----------------------------------
-# - Vs. Baseline
-# group_dat_sho = np.vstack([p.data for p in pows_sho_z])
-# group_dat_lon = np.vstack([p.data for p in pows_lon_z])
-#
-# threshold = None
-# T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(group_dat_lon, n_permutations=100,
-#                                                                        threshold=threshold, tail=0)
-#
-# times = 1e3 * power_subj.times
-# T_obs_plot = np.nan * np.ones_like(T_obs)
-# for c, p_val in zip(clusters, cluster_p_values):
-#     if p_val <= 0.05:
-#         T_obs_plot[c] = T_obs[c]
-#
-# vmax = np.max(np.abs(T_obs))
-# vmin = -vmax
-#
-# plt.subplot(1, 1, 1)
-# plt.imshow(T_obs, cmap=plt.cm.gray,
-#            extent=[times[0], times[-1], freqs[0], freqs[-1]],
-#            aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-# plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
-#            extent=[times[0], times[-1], freqs[0], freqs[-1]],
-#            aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-#
-# plt.colorbar()
-# plt.xlabel('Time (ms)')
-# plt.ylabel('Frequency (Hz)')
+# Subtraction
+conds_powers = list()
+for c in [lon_evo, sho_evo]:
+    c_power = tfr_morlet(c, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
+                         return_itc=False, n_jobs=n_jobs)
+    conds_powers.append(c_power)
+
+diff_pow = conds_powers[0] - conds_powers[1]
+diff_pow.plot_topo(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-5, vmax=5,
+                   fmin=4, fmax=40, yscale='linear')
+
+diff_pow_dat = np.mean(power.apply_baseline(mode='zscore', baseline=(bs_min, bs_max)).data[:, fq_mask, :][:, :, t_mask], axis=(1, 2))
+
+diff_rank_ch = [diff_pow.info['ch_names'][ch] for ch in np.argsort(diff_pow_dat)[::-1]]
+diff_rank_val = [diff_pow_dat[ch] for ch in np.argsort(diff_pow_dat)[::-1]]
+
+rank_fig, ax = plt.subplots(1)
+ax.bar(np.arange(len(diff_rank_val)), diff_rank_val)
+ax.set_xticks(np.arange(len(diff_rank_val)))
+ax.set_xticklabels(diff_rank_ch, rotation='vertical')
+ax.tick_params(labelsize=6)
+
+
+# ROIS
+
+
