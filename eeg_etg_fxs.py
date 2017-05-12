@@ -151,11 +151,11 @@ def permutation_t_test(a, b, n_perm):
     t_real, p_real = ttest_rel(a, b)
 
     t_list = list()
-    for per in range(n_perm):
+    for per in range(int(n_perm)):
         joint = np.concatenate((a, b))
         np.random.shuffle(joint)
         split = np.split(joint, 2)
         t_perm, p_perm = ttest_rel(split[0], split[1])
         t_list.append(t_perm)
-    p_permuted = len(np.where(t_list > t_real)) / n_perm
+    p_permuted = len(np.where(t_list > t_real)[0]) / n_perm
     return t_real, t_list, p_permuted
