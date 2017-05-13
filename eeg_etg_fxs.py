@@ -159,3 +159,5 @@ def permutation_t_test(a, b, n_perm):
         t_list.append(t_perm)
     p_permuted = len(np.where(t_list > t_real)[0]) / n_perm
     return t_real, t_list, p_permuted
+
+
