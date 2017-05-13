@@ -100,6 +100,7 @@ for ix_r, r in enumerate(sorted(rois)):
     pow_sho_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
                    for p in pows_sho_z]
 
+    # Detect Outliers
     outl_cond = list()
     for p in [pow_lon_win, pow_sho_win]:
         outl_cond.append([int(ix) for ix, s in enumerate(p) if (s > np.mean(p) + 3 * np.std(p)) or
