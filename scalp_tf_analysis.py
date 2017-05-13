@@ -13,7 +13,7 @@ from statsmodels.sandbox.stats.multicomp import multipletests
 plt.style.use('ggplot')
 
 # Baseline Parameters
-bs_min = -0.95  # Pre-s2 baseline
+bs_min = -0.9  # Pre-s2 baseline
 bs_max = -0.7
 
 # Time Frequency Parameters
@@ -53,8 +53,8 @@ all_evo = mne.combine_evoked([lon_evo, sho_evo], weights='equal')
 power = tfr_morlet(all_evo, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
                    return_itc=False, n_jobs=n_jobs)
 
-power.plot_topo(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-5, vmax=5,
-                fmin=4, fmax=40, yscale='linear')
+# power.plot_topo(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-5, vmax=5,
+#                 fmin=4, fmax=40, yscale='linear')
 
 
 # Calculate Power per Subject and ROI
@@ -89,7 +89,7 @@ t_mask = (power.times >= tmin) & (power.times <= tmax)
 # Stats - Between Conditions
 outliers = dict(a=list(), b=list(), c=list(), d=list(), e=list(), f=list())
 p_vals = list()
-stat_fig, axes = plt.subplots(6, 2)
+stat_fig, axes = plt.subplots(6, 2, figsize=(8, 10))
 
 for ix_r, r in enumerate(sorted(rois)):
     pows_lon_z = pows_lon[r].copy()
@@ -103,7 +103,7 @@ for ix_r, r in enumerate(sorted(rois)):
     # Detect Outliers
     outl_cond = list()
     for p in [pow_lon_win, pow_sho_win]:
-        outl_cond.append([int(ix) for ix, s in enumerate(p) if (s > np.mean(p) + 3 * np.std(p)) or
+        outl_cond.append([ix for ix, s in enumerate(p) if (s > np.mean(p) + 3 * np.std(p)) or
                          (s < np.mean(p) - 3 * np.std(p))])
 
     outliers[r] = np.union1d(outl_cond[0], outl_cond[1])
@@ -120,9 +120,11 @@ for ix_r, r in enumerate(sorted(rois)):
     # Fig Stats
     axes[ix_r, 0].violinplot([pow_lon_win_ok, pow_sho_win_ok], showmeans=True)
     axes[ix_r, 0].set_ylabel('z-score')
-    axes[ix_r, 0].set_ylim(-5, 30)
+    axes[ix_r, 0].set_ylim(-10, 20)
     axes[ix_r, 1].hist(t_list, bins=50, facecolor='black')
-    axes[ix_r, 1].vlines(t_real, ymin=0, ymax=axes[ix_r, 1].get_ylim()[1], linestyles='--')
+    axes[ix_r, 1].vlines(t_real, ymin=0, ymax=900, linestyles='--')
+    axes[ix_r, 1].set_ylim(-5, 900)
+    axes[ix_r, 1].set_xlim(-5, 5)
     stat_fig.suptitle('{}-{} Hz Power \n {} to {}ms' .format(fmin, fmax, int(tmin*1000), int(tmax*1000)))
 
 print('Outliers found)')
@@ -149,7 +151,6 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
         roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-15, vmax=15,
                      fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
         axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
-print('permuted p =', p_permuted)
 
 
 # Subtraction
@@ -184,6 +185,5 @@ chan = ROI[np.argmax(ROI_power)]
 ch = mne.pick_channels(power.info['ch_names'], [chan])
 print('Selected channel: ', chan)
 
-# ROIS
 
 
