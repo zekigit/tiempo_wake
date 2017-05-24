@@ -43,6 +43,7 @@ for subj in subjects:
         trials['subj'].append(subj), trials['exp_lon'].append(len(epochs['exp_sup_lon'])), trials['exp_sho'].append(len(epochs['exp_sup_sho']))
 
 tr_info = pd.DataFrame(trials)
+n_subj = len(tr_info)
 # tr_info.plot.bar()
 
 lon_evo = mne.combine_evoked(exp_lon, weights='nave')
@@ -90,7 +91,7 @@ t_mask = (power.times >= tmin) & (power.times <= tmax)
 outliers = dict(a=list(), b=list(), c=list(), d=list(), e=list(), f=list())
 p_vals = list()
 stat_fig, axes = plt.subplots(6, 2, figsize=(8, 10))
-
+dfs_list = list()
 for ix_r, r in enumerate(sorted(rois)):
     pows_lon_z = pows_lon[r].copy()
     pows_sho_z = pows_sho[r].copy()
@@ -113,14 +114,21 @@ for ix_r, r in enumerate(sorted(rois)):
 
     n_perm = 10e3
     t_real, t_list, p_permuted = permutation_t_test(pow_lon_win_ok, pow_sho_win_ok, n_perm)
-    pow_dat = pd.DataFrame({'longer': pow_lon_win_ok, 'shorter': pow_sho_win_ok})
-    # pow_dat.to_csv(op.join(study_path, 'tables', 'power_data_{}.csv' .format(r)))
+
+    # Save data
+    subjs = [tr_info['subj'].loc[s] for s in np.arange(n_subj) if s not in outliers[r]]
+    n_subj_roi = len(subjs)
+    pow_dat = pd.DataFrame({'subject': np.tile(subjs, 2), 'roi': np.repeat(r, n_subj_roi*2),
+                            'condition': ['longer']*n_subj_roi + ['shorter']*n_subj_roi,
+                            'power': pow_lon_win_ok + pow_sho_win_ok})
+
+    dfs_list.append(pow_dat)
     p_vals.append(p_permuted)
 
     # Fig Stats
     axes[ix_r, 0].violinplot([pow_lon_win_ok, pow_sho_win_ok], showmeans=True)
     axes[ix_r, 0].set_ylabel('z-score')
-    axes[ix_r, 0].set_ylim(-10, 20)
+    axes[ix_r, 0].set_ylim(-10, 15)
     axes[ix_r, 1].hist(t_list, bins=50, facecolor='black')
     axes[ix_r, 1].vlines(t_real, ymin=0, ymax=900, linestyles='--')
     axes[ix_r, 1].set_ylim(-5, 900)
@@ -132,18 +140,21 @@ x = [print('ROI: {} - outliers: {} - subjects: {}' .format(r, len(outliers[r]), 
 p_vals_corr = multipletests(p_vals, 0.05, 'holm')[1]
 print(p_vals_corr)
 
+power_data = pd.concat(dfs_list)
+power_data.to_csv(op.join(study_path, 'tables', 'power_data.csv'))
+
 # for ax in enumerate(axes[:, 1]):
 #     ax.set_title('p = {}' .format(p_vals_corr[ix]))
 
 # Fig Power
 pow_plot, axes = plt.subplots(6, 2, sharex=True, sharey=True, figsize=(8, 10))
 for ix_c, c in enumerate([exp_lon, exp_sho]):
-    c_ok = [s for ix, s in enumerate(c) if ix not in outliers[r]]
-    c_evo_ok = mne.combine_evoked(c_ok, weights='nave')
-    c_power = tfr_morlet(c_evo_ok, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
-                         return_itc=False, n_jobs=n_jobs)
-
     for ix_r, r in enumerate(sorted(rois)):
+        c_ok = [s for ix, s in enumerate(c) if ix not in outliers[r]]
+        c_evo_ok = mne.combine_evoked(c_ok, weights='nave')
+        c_power = tfr_morlet(c_evo_ok, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
+                             return_itc=False, n_jobs=n_jobs)
+
         roi = rois[r]
         roi_pow = c_power.copy()
         roi_pow.pick_channels(roi)
@@ -151,6 +162,7 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
         roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-15, vmax=15,
                      fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
         axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
+        print('Number of trials -Cond {} -ROI {}: {}' .format(conds[ix_c], r, c_evo_ok.nave))
 
 
 # Subtraction
