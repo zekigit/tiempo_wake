@@ -13,8 +13,8 @@ from statsmodels.sandbox.stats.multicomp import multipletests
 plt.style.use('ggplot')
 
 # Baseline Parameters
-bs_min = -0.9  # Pre-s2 baseline
-bs_max = -0.7
+bs_min = -0.95  # Pre-s2 baseline
+bs_max = -0.75
 
 # Time Frequency Parameters
 freqs = np.arange(4, 41, 0.1)  # frequencies of interest
@@ -96,9 +96,14 @@ for ix_r, r in enumerate(sorted(rois)):
     pows_lon_z = pows_lon[r].copy()
     pows_sho_z = pows_sho[r].copy()
 
-    pow_lon_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    # pow_lon_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    #                for p in pows_lon_z]
+    # pow_sho_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    #                for p in pows_sho_z]
+
+    pow_lon_win = [np.mean(p.copy().apply_baseline(mode='mean', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
                    for p in pows_lon_z]
-    pow_sho_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    pow_sho_win = [np.mean(p.copy().apply_baseline(mode='mean', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
                    for p in pows_sho_z]
 
     # Detect Outliers
@@ -127,8 +132,9 @@ for ix_r, r in enumerate(sorted(rois)):
 
     # Fig Stats
     axes[ix_r, 0].violinplot([pow_lon_win_ok, pow_sho_win_ok], showmeans=True)
-    axes[ix_r, 0].set_ylabel('z-score')
-    axes[ix_r, 0].set_ylim(-10, 15)
+    # axes[ix_r, 0].set_ylabel('z-score')
+    axes[ix_r, 0].set_ylabel('mean')
+    #axes[ix_r, 0].set_ylim(-10, 15)
     axes[ix_r, 1].hist(t_list, bins=50, facecolor='black')
     axes[ix_r, 1].vlines(t_real, ymin=0, ymax=900, linestyles='--')
     axes[ix_r, 1].set_ylim(-5, 900)
@@ -159,8 +165,11 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
         roi_pow = c_power.copy()
         roi_pow.pick_channels(roi)
         roi_pow.data = np.mean(roi_pow.data, 0, keepdims=True)
-        roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-15, vmax=15,
+        # roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-15, vmax=15,
+        #              fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
+        roi_pow.plot(baseline=(bs_min, bs_max), mode='mean', tmin=-0.4, tmax=0.4,
                      fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
+
         axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
         print('Number of trials -Cond {} -ROI {}: {}' .format(conds[ix_c], r, c_evo_ok.nave))
 

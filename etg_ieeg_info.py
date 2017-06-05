@@ -2,7 +2,7 @@
 n_jobs = 2
 dat_path = '/Users/lpen/Documents/Tiempo/ETG/'
 log_path = '/Users/lpen/Documents/Experimentos/Drowsy Time/TimeGeneralization/logs/'
-
+study_path = '/Users/lpen/Documents/Experimentos/Drowsy Time/TimeGeneralization/ieeg/'
 
 files = {'P14': ['ETG3a_P14_remarcado', 'ETG7a_P14_remarcado', 'ETG7p_P14_remarcado']}
 
