@@ -2,6 +2,7 @@ library(ggplot2)
 library(tidyr)
 library(dplyr)
 library(popbio)
+library(pscl)
 
 study_path = '/Users/lpen/Documents/Experimentos/Drowsy Time/TimeGeneralization/ieeg/'
 

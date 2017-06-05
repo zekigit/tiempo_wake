@@ -8,7 +8,7 @@ marks_s = {'s1_sub': 1, 's2_sub': 2, 's1_sup': 10, 's2_sup': 20}
 marks_exp = {'exp_sub_sho': 7, 'exp_sub_eq': 8, 'exp_sub_lon': 9,
              'exp_sup_sho': 70, 'exp_sup_eq': 80, 'exp_sup_lon': 90}
 marks_p = {'pre_trial_sub': 2, 'pre_trial_sup': 20}
-subjects = ['18', '20', '21', '22']
+
 for subj in subjects:
     eeg_file = op.join(study_path, 'fif', '{}_prep-raw.fif' .format(subj))
     raw = mne.io.read_raw_fif(eeg_file, preload=True)
@@ -34,4 +34,5 @@ for subj in subjects:
     exp_epochs, exp_ids = make_exp_baseline(exp, pre_trial, events_tr_id, log, marks_exp)
     exp_epochs.resample(256, n_jobs=n_jobs)
     exp_epochs.save(op.join(study_path, 'epo', '{}_exp-epo.fif' .format(subj)))
-
+    log_ok = log.iloc[exp_ids]
+    log_ok.to_csv(op.join(study_path, 'logs', 'exp_ok', '{}_log_exp.csv' .format(subj)))
