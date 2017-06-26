@@ -132,8 +132,8 @@ for ix_r, r in enumerate(sorted(rois)):
 
     # Fig Stats
     axes[ix_r, 0].violinplot([pow_lon_win_ok, pow_sho_win_ok], showmeans=True)
-    # axes[ix_r, 0].set_ylabel('z-score')
-    axes[ix_r, 0].set_ylabel('mean')
+    axes[ix_r, 0].set_ylabel('z-score')
+    # axes[ix_r, 0].set_ylabel('mean')
     #axes[ix_r, 0].set_ylim(-10, 15)
     axes[ix_r, 1].hist(t_list, bins=50, facecolor='black')
     axes[ix_r, 1].vlines(t_real, ymin=0, ymax=900, linestyles='--')
@@ -145,6 +145,8 @@ print('Outliers found)')
 x = [print('ROI: {} - outliers: {} - subjects: {}' .format(r, len(outliers[r]), outliers[r])) for r in sorted(outliers)]
 p_vals_corr = multipletests(p_vals, 0.05, 'holm')[1]
 print(p_vals_corr)
+
+stat_fig.savefig(op.join(study_path, 'figures', 'sclap_tf_stats.eps'), format='eps', dpi=300)
 
 power_data = pd.concat(dfs_list)
 power_data.to_csv(op.join(study_path, 'tables', 'power_data.csv'))
@@ -165,14 +167,14 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
         roi_pow = c_power.copy()
         roi_pow.pick_channels(roi)
         roi_pow.data = np.mean(roi_pow.data, 0, keepdims=True)
-        # roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-15, vmax=15,
-        #              fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
-        roi_pow.plot(baseline=(bs_min, bs_max), mode='mean', tmin=-0.4, tmax=0.4,
+        roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-10, vmax=10,
                      fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
+        # roi_pow.plot(baseline=(bs_min, bs_max), mode='mean', tmin=-0.4, tmax=0.4,
+        #              fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
 
         axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
         print('Number of trials -Cond {} -ROI {}: {}' .format(conds[ix_c], r, c_evo_ok.nave))
-
+pow_plot.savefig(op.join(study_path, 'figures', 'sclap_tf_chart.eps'), format='eps', dpi=300)
 
 # Subtraction
 conds_powers = list()

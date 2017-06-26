@@ -73,7 +73,7 @@ def calc_connect(epochs):
                                                     cwt_frequencies=cwt_freqs, cwt_n_cycles=cwt_cycles, n_jobs=n_jobs)
 
     np.savez(op.join(study_path, 'results', 'wpli', '{}_{}_wpli' .format(epochs.info['subject_info'], epochs.info['cond'])),
-             con=con, times=epochs.times, freqs=cwt_freqs, nave=len(epochs), info=epochs.info)
+             con=con, times=epochs.times, freqs=cwt_freqs, nave=len(epochs), info=epochs.info, chans=epochs.info['ch_names'])
 
     # tfr = AverageTFR(epochs.info, con[33, :, :, :], epochs.times, freqs, len(epochs))
     # tfr.plot_topo(fig_facecolor='w', font_color='k', border='k', vmin=0, vmax=1, cmap='viridis')
@@ -109,10 +109,10 @@ def con_analysis(subjects, log):
         tfr = AverageTFR(info, avg_con[ix_c], dat['times'], dat['freqs'], len(subjects))
         tfr.plot_topo(fig_facecolor='w', font_color='k', border='k', vmin=0, vmax=0.5, cmap='viridis', title=c)
 
-    # s = 1
-    # for c in conds:
-    #     tfr = AverageTFR(info, roi_cons[c][s, :,:,:], dat['times'], dat['freqs'], len(subjects))
-    #     tfr.plot_topo(fig_facecolor='w', font_color='k', border='k', vmin=0, vmax=1, cmap='viridis', title=c)
+    s = 12
+    for c in conds:
+        tfr = AverageTFR(info, roi_cons[c][s, :, :, :], dat['times'], dat['freqs'], len(subjects))
+        tfr.plot_topo(fig_facecolor='w', font_color='k', border='k', vmin=0, vmax=1, cmap='viridis', title=c)
 
     # Stats
     test_con = [roi_cons[c][:, 19, :, :] for c in conds]
@@ -150,51 +150,90 @@ def decoding_analysis(c1, c2):
     td.fit(epochs)
     td.score(epochs)
     # td.plot('Subject: ', c1.info['subject_info'])
-    scores = td.scores_
 
+    # GAT
+    y = np.zeros(len(epochs.events), dtype=int)
+    y[epochs.events[:, 2] == 90] = 1
+    cv = StratifiedKFold(y=y)  # do a stratified cross-validation
 
-    # # GAT
-    # y = np.zeros(len(epochs.events), dtype=int)
-    # y[epochs.events[:, 2] == 90] = 1
-    # cv = StratifiedKFold(y=y)  # do a stratified cross-validation
-    #
-    # gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=1,
-    #                                cv=cv, scorer=roc_auc_score)
-    #
-    # # fit and score
-    # gat.fit(epochs, y=y)
-    # gat.score(epochs)
-    #
+    gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=1,
+                                   cv=cv, scorer=roc_auc_score)
+
+    # fit and score
+    gat.fit(epochs, y=y)
+    gat.score(epochs)
+
     # # plot
     # gat.plot(vmin=0, vmax=1)
     # gat.plot_diagonal()
-    return scores
+    return td, gat
 
 
-def plot_time_decoding(subj_scores):
-    scores_arr = np.array(subj_scores)
+def plot_decoding(subj_scores):
+    # Time Decoding
+    scores_arr = np.array(subj_scores['td'])
     mean_sco = np.mean(scores_arr, axis=0)
     sem_sco = sem(scores_arr, axis=0)
 
     t_masks = [[lon.times < -0.7], [lon.times > -0.7]]
-    dec_fig, axes = plt.subplots(1, 2, sharey=True, gridspec_kw={'width_ratios': [1,3]})
+    dec_fig, axes = plt.subplots(1, 2, sharey=True, gridspec_kw={'width_ratios': [1, 3]})
     for ix_m, m in enumerate(t_masks):
         axes[ix_m].plot(lon.times[m], mean_sco[m])
         axes[ix_m].fill_between(lon.times[m], mean_sco[m]+sem_sco[m], mean_sco[m]-sem_sco[m], alpha=0.3)
         axes[ix_m].set_ylim(0.45, 0.7)
+    axes[0].set_xlim(-0.95, -0.7)
+    axes[0].hlines(0.5, xmin=axes[0].get_xlim()[0], xmax=axes[0].get_xlim()[1], linestyles=':')
+    axes[1].hlines(0.5, xmin=axes[1].get_xlim()[0], xmax=axes[1].get_xlim()[1], linestyles=':')
     axes[1].vlines(0, ymin=axes[1].get_ylim()[0], ymax=axes[1].get_ylim()[1], linestyles='--')
     axes[1].set_xlim(-0.7, 0.7)
+    axes[0].set_ylabel('Classification Performance (AUC)')
     dec_fig.tight_layout(w_pad=0.1)
+    dec_fig.savefig(op.join(study_path, 'figures', 'group_decoding.eps'), format='eps', dpi=300)
 
-# subjects = subjects[:8]
+    # GAT
+    plt.style.use('ggplot')
+    scores_gat = np.array(subj_scores['gat'])
+    np.savez(op.join(study_path, 'results', 'decoding', 'group_gat'), gat=scores_gat)
+    mean_gat = np.mean(scores_gat, axis=0)
+
+    s2_exp = np.where(lon.times == 0)[0][0]
+    s2_on = (np.abs(lon.times - -0.7)).argmin()
+    ticks = np.array([0, 64, s2_exp-2*s2_on, s2_exp-s2_on, s2_exp, s2_exp+s2_on, s2_exp+2*s2_on], subok=True)
+    ticks_labels = [-0.25, 0, -0.5, -0.25, 0, 0.25, 0.5]
+
+    gat_fig, ax = plt.subplots(1, 1)
+    cax = ax.imshow(mean_gat, origin='lower', vmin=0.4, vmax=0.7, cmap='RdBu_r')
+    ax.set_xticks(ticks)
+    ax.set_yticks(ticks)
+    ax.set_xticklabels(ticks_labels)
+    ax.set_yticklabels(ticks_labels)
+    ax.vlines(s2_on, ymin=ax.get_ylim()[0], ymax=ax.get_ylim()[1], linestyles='-')
+    ax.hlines(s2_on, xmin=ax.get_xlim()[0], xmax=ax.get_xlim()[1], linestyles='-')
+    ax.vlines(s2_exp, ymin=ax.get_ylim()[0], ymax=ax.get_ylim()[1], linestyles=':')
+    ax.hlines(s2_exp, xmin=ax.get_xlim()[0], xmax=ax.get_xlim()[1], linestyles=':')
+    ax.set_ylabel('Training Time (s)')
+    ax.set_xlabel('Testing Time (s)')
+    cbar = gat_fig.colorbar(cax, ticks=np.arange(0.4, 0.7, 0.05))
+    gat_fig.savefig(op.join(study_path, 'figures', 'group_gat.eps'), format='eps', dpi=300)
+
+
+
+    ax.set_xticklabels([-0.25, 0, 0.25, 0.5])
+
+
 if __name__ == '__main__':
     all_s_dat = list()
-    all_scores = list()
+    all_scores = dict(td=list(), gat=list())
     for subj in subjects:
         print('Subject: ', subj)
+
+        # Load
         lon, sho, log = load_subj(subj)
-        scores = decoding_analysis(lon, sho)
-        all_scores.append(scores)
+
+        # Decoding
+        td, gat = decoding_analysis(lon, sho)
+        all_scores['td'].append(td.scores_)
+        all_scores['gat'].append(gat.scores_)
 
         # Single trial time-frequency & connectivity
         for cond in [lon, sho]:
@@ -207,8 +246,9 @@ if __name__ == '__main__':
     all_dat = pd.concat(all_s_dat, ignore_index=True)
     # all_dat.to_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
 
-    plot_time_decoding(all_scores)
+    # Plot group decoding
+    plot_decoding(all_scores)
 
     # Connectivity analysis
-    # all_dat = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
-    # con_analysis(subj, all_dat, lon.info)
+    all_dat = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
+    con_analysis(subj, all_dat, lon.info)

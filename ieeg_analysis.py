@@ -1,5 +1,5 @@
 import mne
-from mne.time_frequency import tfr_morlet, tfr_multitaper, tfr_stockwell
+from mne.time_frequency import tfr_morlet, AverageTFR
 import numpy as np
 import os.path as op
 import matplotlib.pyplot as plt
@@ -12,14 +12,17 @@ from mne.stats import permutation_cluster_1samp_test, permutation_cluster_test
 from mpl_toolkits.axes_grid1 import ImageGrid
 from scipy.stats import ttest_ind
 from statsmodels.sandbox.stats.multicomp import multipletests
+from subj_and_group_analysis import calc_connect, decoding_analysis
 
 pd.set_option('display.expand_frame_repr', False)
 plt.style.use('ggplot')
 
 subj = 'P14'
-conds = ['Longer', 'Shorter']
+conds = ['lon', 'sho']
 ref = 'avg'
 
+
+# ----- LOAD AND PREPROCESS
 ratios = 7
 if ratios == 3:
     file_ix = 0
@@ -52,7 +55,8 @@ elif ref == 'avg':
     raw.info['bads'] = bads
     raw, ref = mne.io.set_eeg_reference(raw, ref_channels=None, copy=True)
     raw.apply_proj()
-    picks = [27, 95, 103]
+    picks = [93, 94, 95, 96,
+             101, 102, 103, 104]
 
 # Filters
 notchs = np.arange(50, 151, 50)
@@ -97,15 +101,23 @@ exp_sup_sho = exp_epochs['exp_sup_sho']
 exp_sup_lon.apply_baseline(baseline=(bs_min, bs_max))
 exp_sup_sho.apply_baseline(baseline=(bs_min, bs_max))
 
+
+for ix, ep in enumerate([exp_sup_lon, exp_sup_sho]):
+    ep.drop_channels(ep.info['bads'])
+    ep.save(op.join(study_path, 'data', 'P14_{}-epo.fif' .format(conds[ix])))
+
+
+# ---- ANALYSIS----
+
 # Time-Frequency
 freqs = np.arange(4, 121, 0.1)  # define frequencies of interest
-#freqs = np.arange(8, 121, 0.1)  # define frequencies of interestn_cycles = 4.  # different number of cycle per frequency
-#n_cycles = freqs / 2.  # different number of cycle per frequency
+# freqs = np.arange(8, 121, 0.1)  # define frequencies of interest
+# n_cycles = freqs / 2.  # different number of cycle per frequency
 n_cycles = 3.
 
 
 pow_list = list()
-tf_fig, axes = plt.subplots(3, 2, figsize=(8, 10))
+tf_fig, axes = plt.subplots(len(picks), 2, figsize=(8, 10))
 for ix_c, c in enumerate([exp_sup_lon, exp_sup_sho]):
     power = tfr_morlet(c, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=False,
                        return_itc=False, n_jobs=n_jobs, picks=picks)
@@ -128,7 +140,7 @@ tf_fig.tight_layout()
 tf_fig.savefig(op.join(study_path, 'figures', 'tf_intra.png'), format='png', dpi=300)
 
 # Transform to z-score from baseline
-pows_corr = [p.copy().apply_baseline(mode='mean', baseline=(-0.95, -0.75)) for p in pow_list]
+pows_corr = [p.copy().apply_baseline(mode='zscore', baseline=(-0.95, -0.75)) for p in pow_list]
 channels = pows_corr[0].info['ch_names']
 
 # Single Trial Plot
@@ -170,7 +182,7 @@ pow_win = [np.mean(p.copy().crop(tmin=tmin, tmax=tmax).data[:, :, fq_mask, :], a
 n_perm = 10e3
 p_vals = list()
 dats = list()
-stat_fig, axes = plt.subplots(3, 2, figsize=(8, 10))
+stat_fig, axes = plt.subplots(len(picks), 2, figsize=(8, 10))
 for ix_ch, ch in enumerate(channels):
     dat_lon = pow_win[0][:, ix_ch]
     dat_sho = pow_win[1][:, ix_ch]
@@ -209,7 +221,7 @@ for ix_ch, ch in enumerate(channels):
 p_vals_corr = multipletests(p_vals, 0.05, 'holm')[1]
 print(p_vals_corr)
 
-#plt.hist([dat_ok[0], dat_ok[1]])
+# plt.hist([dat_ok[0], dat_ok[1]])
 
 # Behaviour
 log_lon = log.loc[exp_sup_lon.selection]
@@ -243,45 +255,72 @@ for ix_ch, ch in enumerate(channels):
     plt.scatter(log_lon_ok['RT'].values, dats[ix_ch][0])
     plt.scatter(log_sho_ok['RT'].values, dats[ix_ch][1])
 
+
+# Decoding
+td, gat = decoding_analysis(exp_sup_lon, exp_sup_sho)
+td.plot()
+gat.plot(vmin=0.4, vmax=0.7, tlim=(-0.7, 0.7, -0.7, 0.7))
+gat.plot_diagonal()
+
+# Connectivity
+for ix_c, c in enumerate([exp_sup_lon, exp_sup_sho]):
+    c.info['subject_info'] = 'P14'
+    c.info['cond'] = conds[ix_c]
+    calc_connect(c)
+
+dats = list()
+for c in conds:
+    dat = np.load(op.join(study_path, 'results', 'wpli', 'P14_{}_wpli.npz' .format(c)))
+    dats.append(dat)
+
+info = dat['info'].item()
+
+for ix_c, c in enumerate(conds):
+    tfr = AverageTFR(info, dats[ix_c]['con'][1, :, :, :], dat['times'], dat['freqs'], 1)
+    tfr.plot(picks=[83], vmin=-1, vmax=1, cmap='viridis', title=c)
+
+
+
+# ----------- END-----------
 # plt.plot(power.times, np.mean(pows_corr[0].data[:, 0, :, :], axis=2))
 # power_bs.apply_baseline(mode='logratio', baseline=(-0.7, -0.4)).average().plot([1], fmin=1, fmax=120, tmin=-0.6, tmax=0.6, vmax=0.5, vmin=-0.5)
 # power.average().apply_baseline(mode='logratio', baseline=(-0.7, -0.4)).plot([1], fmin=1, fmax=120, tmin=-0.6, tmax=0.6, vmax=0.5, vmin=-0.5)
-
-power_lon = pows_corr[0].crop(-0.4, 0.4)
-power_sho = pows_corr[1].crop(-0.4, 0.4)
-# power_bs.average().plot([1])
-
-power_c1 = power_lon.data[:, 1, :, :]
-power_c2 = power_sho.data[:, 1, :, :]
-
-threshold = None
-T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c1, n_permutations=100, threshold=threshold, tail=1)
-
+#
+# power_lon = pows_corr[0].crop(-0.4, 0.4)
+# power_sho = pows_corr[1].crop(-0.4, 0.4)
+# # power_bs.average().plot([1])
+#
+# power_c1 = power_lon.data[:, 1, :, :]
+# power_c2 = power_sho.data[:, 1, :, :]
+#
 # threshold = None
-# T_obs, clusters, cluster_p_values, H0 = \
-#     permutation_cluster_test([power_c1, power_c2],
-#                              n_permutations=100, threshold=threshold, tail=0)
-
-
-times = 1e3 * power_lon.times
-T_obs_plot = np.nan * np.ones_like(T_obs)
-for c, p_val in zip(clusters, cluster_p_values):
-    if p_val <= 0.05:
-        T_obs_plot[c] = T_obs[c]
-
-vmax = np.max(np.abs(T_obs))
-vmin = -vmax
-
-plt.subplot(1, 1, 1)
-plt.imshow(T_obs, cmap=plt.cm.gray,
-           extent=[times[0], times[-1], freqs[0], freqs[-1]],
-           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
-           extent=[times[0], times[-1], freqs[0], freqs[-1]],
-           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-
-plt.colorbar()
-plt.xlabel('Time (ms)')
-plt.ylabel('Frequency (Hz)')
-#plt.title('Induced power (%s)' % ch_name)
-
+# T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c1, n_permutations=100, threshold=threshold, tail=1)
+#
+# # threshold = None
+# # T_obs, clusters, cluster_p_values, H0 = \
+# #     permutation_cluster_test([power_c1, power_c2],
+# #                              n_permutations=100, threshold=threshold, tail=0)
+#
+#
+# times = 1e3 * power_lon.times
+# T_obs_plot = np.nan * np.ones_like(T_obs)
+# for c, p_val in zip(clusters, cluster_p_values):
+#     if p_val <= 0.05:
+#         T_obs_plot[c] = T_obs[c]
+#
+# vmax = np.max(np.abs(T_obs))
+# vmin = -vmax
+#
+# plt.subplot(1, 1, 1)
+# plt.imshow(T_obs, cmap=plt.cm.gray,
+#            extent=[times[0], times[-1], freqs[0], freqs[-1]],
+#            aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+# plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
+#            extent=[times[0], times[-1], freqs[0], freqs[-1]],
+#            aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+#
+# plt.colorbar()
+# plt.xlabel('Time (ms)')
+# plt.ylabel('Frequency (Hz)')
+# #plt.title('Induced power (%s)' % ch_name)
+#
