@@ -12,7 +12,7 @@ from mne.stats import permutation_cluster_1samp_test, permutation_cluster_test
 from mpl_toolkits.axes_grid1 import ImageGrid
 from scipy.stats import ttest_ind
 from statsmodels.sandbox.stats.multicomp import multipletests
-from subj_and_group_analysis import calc_connect, decoding_analysis
+from subj_and_group_analysis import calc_connect_over_time, decoding_analysis
 
 pd.set_option('display.expand_frame_repr', False)
 plt.style.use('ggplot')
@@ -266,7 +266,7 @@ gat.plot_diagonal()
 for ix_c, c in enumerate([exp_sup_lon, exp_sup_sho]):
     c.info['subject_info'] = 'P14'
     c.info['cond'] = conds[ix_c]
-    calc_connect(c)
+    calc_connect_over_time(c)
 
 dats = list()
 for c in conds:

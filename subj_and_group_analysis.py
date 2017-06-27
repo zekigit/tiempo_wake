@@ -65,7 +65,7 @@ def tf_single_trial(epochs, log):
     return log
 
 
-def calc_connect(epochs):
+def calc_connect_over_time(epochs):
     cwt_freqs = np.arange(8, 30, 1)
     cwt_cycles = cwt_freqs / 4.
     epochs.crop(-0.7, 0.7)
@@ -77,6 +77,18 @@ def calc_connect(epochs):
 
     # tfr = AverageTFR(epochs.info, con[33, :, :, :], epochs.times, freqs, len(epochs))
     # tfr.plot_topo(fig_facecolor='w', font_color='k', border='k', vmin=0, vmax=1, cmap='viridis')
+
+
+def calc_connect_over_epochs(epochs):
+    fmin = (1, 4, 8, 13, 30)
+    fmax = (4, 7, 12, 30, 40)
+
+    epochs.crop(-0.7, 0.7)
+    con, freqs, times, _, _ = spectral_connectivity(epochs, method='wpli_debiased', mode='multitaper', fmin=fmin,  fmax=fmax, faverage=True,
+                                                    mt_adaptive=False, n_jobs=n_jobs, verbose=False)
+
+    np.savez(op.join(study_path, 'results', 'wpli', '{}_{}_dwpli_epochs' .format(epochs.info['subject_info'], epochs.info['cond'])),
+             con=con, times=epochs.times, freqs=(fmin, fmax), nave=len(epochs), info=epochs.info, chans=epochs.info['ch_names'])
 
 
 def con_analysis(subjects, log):
