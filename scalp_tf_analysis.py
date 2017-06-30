@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from natsort import natsorted
 from statsmodels.sandbox.stats.multicomp import multipletests
+from mne.stats import permutation_cluster_test, permutation_cluster_1samp_test
 
 
 plt.style.use('ggplot')
@@ -18,7 +19,7 @@ bs_max = -0.75
 
 # Time Frequency Parameters
 freqs = np.arange(4, 41, 0.1)  # frequencies of interest
-n_cycles = 4.
+n_cycles = 3.
 
 # Comparison Parameters
 conds = ['Longer', 'Shorter']
@@ -96,21 +97,21 @@ for ix_r, r in enumerate(sorted(rois)):
     pows_lon_z = pows_lon[r].copy()
     pows_sho_z = pows_sho[r].copy()
 
-    # pow_lon_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
-    #                for p in pows_lon_z]
-    # pow_sho_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
-    #                for p in pows_sho_z]
-
-    pow_lon_win = [np.mean(p.copy().apply_baseline(mode='mean', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    pow_lon_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
                    for p in pows_lon_z]
-    pow_sho_win = [np.mean(p.copy().apply_baseline(mode='mean', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    pow_sho_win = [np.mean(p.copy().apply_baseline(mode='zscore', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
                    for p in pows_sho_z]
+
+    # pow_lon_win = [np.mean(p.copy().apply_baseline(mode='mean', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    #                for p in pows_lon_z]
+    # pow_sho_win = [np.mean(p.copy().apply_baseline(mode='mean', baseline=(bs_min, bs_max), verbose=False).crop(tmin=tmin, tmax=tmax).data[:, fq_mask, :])
+    #                for p in pows_sho_z]
 
     # Detect Outliers
     outl_cond = list()
     for p in [pow_lon_win, pow_sho_win]:
-        outl_cond.append([ix for ix, s in enumerate(p) if (s > np.mean(p) + 3 * np.std(p)) or
-                         (s < np.mean(p) - 3 * np.std(p))])
+        outl_cond.append([ix for ix, s in enumerate(p) if (s > np.mean(p) + 3.5 * np.std(p)) or
+                         (s < np.mean(p) - 3.5 * np.std(p))])
 
     outliers[r] = np.union1d(outl_cond[0], outl_cond[1])
 
@@ -146,7 +147,7 @@ x = [print('ROI: {} - outliers: {} - subjects: {}' .format(r, len(outliers[r]), 
 p_vals_corr = multipletests(p_vals, 0.05, 'holm')[1]
 print(p_vals_corr)
 
-stat_fig.savefig(op.join(study_path, 'figures', 'sclap_tf_stats.eps'), format='eps', dpi=300)
+stat_fig.savefig(op.join(study_path, 'figures', 'sclap_tf_stats.png'), format='png', dpi=300)
 
 power_data = pd.concat(dfs_list)
 power_data.to_csv(op.join(study_path, 'tables', 'power_data.csv'))
@@ -160,6 +161,7 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
     for ix_r, r in enumerate(sorted(rois)):
         c_ok = [s for ix, s in enumerate(c) if ix not in outliers[r]]
         c_evo_ok = mne.combine_evoked(c_ok, weights='nave')
+        # c_evo_ok = mne.combine_evoked(c, weights='nave')
         c_power = tfr_morlet(c_evo_ok, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
                              return_itc=False, n_jobs=n_jobs)
 
@@ -167,46 +169,91 @@ for ix_c, c in enumerate([exp_lon, exp_sho]):
         roi_pow = c_power.copy()
         roi_pow.pick_channels(roi)
         roi_pow.data = np.mean(roi_pow.data, 0, keepdims=True)
-        roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-10, vmax=10,
+        roi_pow.plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-20, vmax=20,
                      fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
         # roi_pow.plot(baseline=(bs_min, bs_max), mode='mean', tmin=-0.4, tmax=0.4,
         #              fmin=4, fmax=40, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
 
         axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
         print('Number of trials -Cond {} -ROI {}: {}' .format(conds[ix_c], r, c_evo_ok.nave))
-pow_plot.savefig(op.join(study_path, 'figures', 'sclap_tf_chart.eps'), format='eps', dpi=300)
-
-# Subtraction
-conds_powers = list()
-for c in [lon_evo, sho_evo]:
-    c_power = tfr_morlet(c, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
-                         return_itc=False, n_jobs=n_jobs)
-    conds_powers.append(c_power)
-
-diff_pow = conds_powers[0] - conds_powers[1]
-diff_pow.plot_topo(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-5, vmax=5,
-                   fmin=4, fmax=40, yscale='linear')
-
-diff_pow_dat = np.mean(power.apply_baseline(mode='zscore', baseline=(bs_min, bs_max)).data[:, fq_mask, :][:, :, t_mask], axis=(1, 2))
-
-diff_rank_ch = [diff_pow.info['ch_names'][ch] for ch in np.argsort(diff_pow_dat)[::-1]]
-diff_rank_val = [diff_pow_dat[ch] for ch in np.argsort(diff_pow_dat)[::-1]]
-
-rank_fig, ax = plt.subplots(1)
-ax.bar(np.arange(len(diff_rank_val)), diff_rank_val)
-ax.set_xticks(np.arange(len(diff_rank_val)))
-ax.set_xticklabels(diff_rank_ch, rotation='vertical')
-ax.tick_params(labelsize=6)
+pow_plot.savefig(op.join(study_path, 'figures', 'sclap_tf_chart.png'), format='png', dpi=300)
 
 
-# Find electrode for comparison
-ROI = natsorted(np.union1d(ROI_d, ROI_i))
-ch_mask = np.in1d(power.info['ch_names'], ROI)
-ROI_chans = mne.pick_channels(power.info['ch_names'], ROI)
-ROI_power = np.mean(power.apply_baseline(mode='zscore', baseline=(bs_min, bs_max)).data[ch_mask, :, :][:, fq_mask, :][:, :, t_mask], axis=(1, 2))
-chan = ROI[np.argmax(ROI_power)]
-ch = mne.pick_channels(power.info['ch_names'], [chan])
-print('Selected channel: ', chan)
+# ---- END ------
+r = 'f'
+mode = 'zscore'
+roi_pows_corr_lon = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_lon[r]]
+roi_pows_corr_sho = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_sho[r]]
+
+power_c1 = np.stack(roi_pows_corr_lon, axis=0).squeeze()
+power_c2 = np.stack(roi_pows_corr_sho, axis=0).squeeze()
 
 
+# threshold = None
+# T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c2, n_permutations=100, threshold=threshold, tail=1)
+
+threshold = {'start': 0, 'step': 1}
+T_obs, clusters, cluster_p_values, H0 = \
+    permutation_cluster_test([power_c1, power_c2],
+                             n_permutations=100, threshold=threshold, tail=1)
+
+times = np.linspace(-0.4, 0.4, power_c1.shape[2])
+times = 1e3 * times
+
+T_obs_plot = np.nan * np.ones_like(T_obs)
+for c, p_val in zip(clusters, cluster_p_values):
+    if p_val <= 0.06:
+        T_obs_plot[c] = T_obs[c]
+
+vmax = np.max(np.abs(T_obs))
+vmin = -vmax
+
+plt.subplot(1, 1, 1)
+plt.imshow(T_obs, cmap=plt.cm.gray,
+           extent=[times[0], times[-1], freqs[0], freqs[-1]],
+           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
+           extent=[times[0], times[-1], freqs[0], freqs[-1]],
+           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+
+plt.colorbar()
+plt.xlabel('Time (ms)')
+plt.ylabel('Frequency (Hz)')
+# plt.title('Induced power (%s)' % ch_name)
+
+
+
+# # Subtraction
+# conds_powers = list()
+# for c in [lon_evo, sho_evo]:
+#     c_power = tfr_morlet(c, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
+#                          return_itc=False, n_jobs=n_jobs)
+#     conds_powers.append(c_power)
+#
+# diff_pow = conds_powers[0] - conds_powers[1]
+# diff_pow.plot_topo(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-5, vmax=5,
+#                    fmin=4, fmax=40, yscale='linear')
+#
+# diff_pow_dat = np.mean(power.apply_baseline(mode='zscore', baseline=(bs_min, bs_max)).data[:, fq_mask, :][:, :, t_mask], axis=(1, 2))
+#
+# diff_rank_ch = [diff_pow.info['ch_names'][ch] for ch in np.argsort(diff_pow_dat)[::-1]]
+# diff_rank_val = [diff_pow_dat[ch] for ch in np.argsort(diff_pow_dat)[::-1]]
+#
+# rank_fig, ax = plt.subplots(1)
+# ax.bar(np.arange(len(diff_rank_val)), diff_rank_val)
+# ax.set_xticks(np.arange(len(diff_rank_val)))
+# ax.set_xticklabels(diff_rank_ch, rotation='vertical')
+# ax.tick_params(labelsize=6)
+#
+#
+# # Find electrode for comparison
+# ROI = natsorted(np.union1d(ROI_d, ROI_i))
+# ch_mask = np.in1d(power.info['ch_names'], ROI)
+# ROI_chans = mne.pick_channels(power.info['ch_names'], ROI)
+# ROI_power = np.mean(power.apply_baseline(mode='zscore', baseline=(bs_min, bs_max)).data[ch_mask, :, :][:, fq_mask, :][:, :, t_mask], axis=(1, 2))
+# chan = ROI[np.argmax(ROI_power)]
+# ch = mne.pick_channels(power.info['ch_names'], [chan])
+# print('Selected channel: ', chan)
+#
+#
 

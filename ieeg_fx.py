@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial import distance
 import scipy.io as scio
+from scipy.stats import ttest_ind
 from mpl_toolkits.mplot3d import Axes3D
 
 
@@ -22,7 +23,8 @@ def make_bip_chans(ch_info):
     anodes = list()
     cathodes = list()
 
-    for ix, ch in ch_info.iterrows():
+    for ix, (ix_c, ch) in enumerate(ch_info.iterrows()):
+        print(ix, ch['Electrode'])
         if (ix < len(ch_info)-1) and (ch_info['Nr'].iloc[ix+1] == ch_info['Nr'].iloc[ix]+1) and \
                 (ch_info['Name'].iloc[ix] == ch_info['Name'].iloc[ix+1]) and (ch_info['White Grey'].iloc[ix] == ch_info['White Grey'].iloc[ix+1]):
             for column in bip_info.keys():
@@ -31,7 +33,7 @@ def make_bip_chans(ch_info):
                     col = np.average([ch_info[column].iloc[ix], ch_info[column].iloc[ix+1]])
                 if column == 'Electrode':
                     anodes.append(col), cathodes.append(ch_info['Electrode'].iloc[ix+1])
-                    col = '{}-{}' .format(col, cathodes[-1] )
+                    col = '{}-{}' .format(col, cathodes[-1])
                 bip_info[column].append(col)
     bip_chans = pd.DataFrame(bip_info)
     print('nr anodes:{} nr cathodes:{}' .format(len(anodes), len(cathodes)))
@@ -235,3 +237,17 @@ def save_mat_chans(subj, study_path):
     ch_info = pd.read_pickle('{}/{}/data/epochs/wake_ch_info.pkl' .format(study_path, subj))
     save_path = '{}/{}/info/{}_ch_info_ok.xls' .format(study_path, subj, subj)
     ch_info.to_csv(save_path)
+
+
+def permutation_test(dat_list, n_perm):
+    t_real, p_real = ttest_ind(dat_list[0], dat_list[1])
+
+    t_list = list()
+    for per in range(int(n_perm)):
+        joint = np.concatenate((dat_list[0], dat_list[1]))
+        np.random.shuffle(joint)
+        split = np.array_split(joint, 2)
+        t_perm, p_perm = ttest_ind(split[0], split[1])
+        t_list.append(t_perm)
+    p_permuted = len(np.where(t_list > t_real)[0]) / n_perm
+    return t_real, p_real, t_list, p_permuted

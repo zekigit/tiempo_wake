@@ -7,10 +7,13 @@ from mne.stats import permutation_cluster_test
 from mne.decoding import TimeDecoding, GeneralizationAcrossTime, get_coef
 from sklearn.metrics import roc_auc_score
 from sklearn.cross_validation import StratifiedKFold
-from etg_scalp_info import study_path, subjects, n_jobs, rois
+from etg_scalp_info import study_path, subjects, n_jobs, rois, conditions
+from eeg_etg_fxs import create_con_mat
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
 import pandas as pd
 from scipy.stats import sem
+from scipy.io import savemat
 pd.set_option('display.expand_frame_repr', False)
 
 
@@ -91,15 +94,16 @@ def calc_connect_over_epochs(epochs):
              con=con, times=epochs.times, freqs=(fmin, fmax), nave=len(epochs), info=epochs.info, chans=epochs.info['ch_names'])
 
 
-def con_analysis(subjects, log):
+def con_analysis_time(subjects, log):
     conds = ['lon', 'sho']
     roi_cons = {}
     roi = rois['f']
+    spatial_con = mne.channels.read_ch_connectivity('biosemi64')
 
     for ix_s, s in enumerate(subjects):
         print('subject {} of {}' .format(ix_s+1, len(subjects)))
         for ix_c, c in enumerate(conds):
-            filename = op.join(study_path, 'results', 'wpli', '{}_{}_wpli.npz' .format(s, c))
+            filename = op.join(study_path, 'results', 'wpli', 'over_time', '{}_{}_wpli.npz' .format(s, c))
             dat = np.load(filename)
             info = dat['info'].item()
 
@@ -129,7 +133,8 @@ def con_analysis(subjects, log):
     # Stats
     test_con = [roi_cons[c][:, 19, :, :] for c in conds]
 
-    threshold = None
+    #threshold = None
+    threshold = dict(start=0, step=0.2)
     T_obs, clusters, cluster_p_values, H0 = \
         permutation_cluster_test([test_con[0], test_con[1]],
                                  n_permutations=1000, threshold=threshold, tail=0)
@@ -154,6 +159,79 @@ def con_analysis(subjects, log):
     plt.xlabel('Time (ms)')
     plt.ylabel('Frequency (Hz)')
     plt.title('ROI Connectivity')
+
+
+def con_analysis_epochs(subjects):
+    # load data
+    mats, freqs, chans = load_con_dat(subjects)
+
+    # load spatial structure
+    connectivity, ch_names = mne.channels.read_ch_connectivity(
+        '/Users/lpen/Documents/MATLAB/Toolbox/fieldtrip-20170628/template/neighbours/biosemi128_neighb.mat')
+
+    # square matrix
+    for c in conditions:
+        for s in range(len(subjects)):
+            mats[c][s, :, :, :] = create_con_mat(mats[c][s, :, :, :])
+
+    avg_mat = [np.nanmean(mats[x], axis=0) for x in mats]
+
+    # plot
+    con_fig = plt.figure(figsize=(15, 10))
+    grid = ImageGrid(con_fig, 111,
+                     nrows_ncols=(2, 5),
+                     axes_pad=0.3,
+                     cbar_mode='single',
+                     cbar_pad='10%',
+                     cbar_location='right')
+
+    for idx, ax in enumerate(grid):
+        if idx <= 4:
+            im = ax.imshow(avg_mat[0][:, :, idx], vmin=0, vmax=0.4)
+        else:
+            im = ax.imshow(avg_mat[1][:, :, idx-5], vmin=0, vmax=0.4)
+
+    cb = con_fig.colorbar(im, cax=grid.cbar_axes[0])
+    cb.ax.set_title('wPLI', loc='right')
+
+    avg_ch_mat = [np.nanmean(mats[x], axis=2) for x in mats]
+    avg_ch_mat = [np.transpose(x, (0, 2, 1)) for x in avg_ch_mat]
+
+    # s = 16
+    # plt.imshow(avg_ch_mat[0][s, :, :], aspect='auto', vmax=1, vmin=0)
+    # plt.colorbar()
+
+    threshold = dict(start=0, step=0.1)
+    n_perm = 1000
+
+    fq_dat = [mats[x][:, :, :, 2] for x in mats]
+    fq_dat = np.nan_to_num(fq_dat)
+
+    T_obs, clusters, cluster_p_values, H0 = permutation_cluster_test(fq_dat, n_permutations=n_perm, connectivity=connectivity,
+                                                                     threshold=threshold, tail=0, n_jobs=2)
+
+    plt.hist(cluster_p_values)
+
+
+
+
+def load_con_dat(subjects, save=False):
+    mats = dict(lon=list(), sho=list())
+    for s in subjects:
+        for c in conditions:
+            fname = op.join(study_path, 'results', 'wpli', 'over_epochs', '{}_{}_dwpli_epochs.npz' .format(s, c))
+            raw = np.load(fname)
+            mats[c].append(raw['con'])
+    for c in conditions:
+        mats[c] = np.stack(mats[c])
+
+    if save:
+        savemat(op.join(study_path, 'tables', 'wpli_epochs_all_dat.mat'), {'lon': mats['lon'], 'sho': mats['sho'],
+                                                                            'freqs': raw['freqs'], 'chans': raw['chans']})
+
+    freqs = raw['freqs']
+    chans = raw['chans']
+    return mats, freqs, chans
 
 
 def decoding_analysis(c1, c2):
@@ -263,4 +341,4 @@ if __name__ == '__main__':
 
     # Connectivity analysis
     all_dat = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
-    con_analysis(subj, all_dat, lon.info)
+    con_analysis_time(subj, all_dat, lon.info)

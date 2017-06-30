@@ -3,6 +3,7 @@ import scipy.io as spio
 import pandas as pd
 import mne
 from scipy.stats import ttest_rel
+from mpl_toolkits.axes_grid1 import ImageGrid
 
 
 def check_events(events):
@@ -160,3 +161,13 @@ def permutation_t_test(a, b, n_perm):
     p_permuted = len(np.where(t_list > t_real)[0]) / n_perm
     return t_real, t_list, p_permuted
 
+
+def create_con_mat(con):
+    con_mat = np.copy(con)
+
+    upper = np.triu_indices_from(con_mat[:, :, 0])
+    for fq in range(con.shape[2]):
+        swap = np.swapaxes(con_mat[:, :, fq], 0, 1)
+        for val in zip(upper[0], upper[1]):
+            con_mat[:, :, fq][val] = swap[val]
+    return con_mat

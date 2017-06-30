@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from etg_ieeg_info import dat_path, files, n_jobs, log_path, marks, marks_exp, marks_p, study_path
 from eeg_etg_fxs import read_log_file, check_events, durations_from_log_ieeg, create_events, add_event_condition, make_exp_baseline, \
     add_event_tr_id, permutation_t_test
-from ieeg_fx import make_bip_chans
+from ieeg_fx import make_bip_chans, permutation_test
 import pandas as pd
 from mne.stats import permutation_cluster_1samp_test, permutation_cluster_test
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -48,15 +48,19 @@ raw.rename_channels(ch_dict)
 if ref == 'bip':
     bip_chans, anodes, cathodes = make_bip_chans(ch_info)
     raw = mne.io.set_bipolar_reference(raw, anode=anodes, cathode=cathodes)
-    picks = [82, 83, 75]
+    bads = bip_chans['Electrode'][bip_chans['White Grey'] != 'Grey Matter'].tolist()
+    raw.info['bads'] = bads
+    picks = [41, 42, 43,
+             47, 48, 49]
 
 elif ref == 'avg':
     bads = ch_info['Electrode'][ch_info['White Grey'] != 'Grey Matter'].tolist()
     raw.info['bads'] = bads
-    raw, ref = mne.io.set_eeg_reference(raw, ref_channels=None, copy=True)
+    raw.drop_channels(bads)
+    raw, re_ref = mne.io.set_eeg_reference(raw, ref_channels=None, copy=True)
     raw.apply_proj()
-    picks = [93, 94, 95, 96,
-             101, 102, 103, 104]
+    picks = [60, 61, 62, 63,
+             52, 53, 54, 55]
 
 # Filters
 notchs = np.arange(50, 151, 50)
@@ -113,7 +117,7 @@ for ix, ep in enumerate([exp_sup_lon, exp_sup_sho]):
 freqs = np.arange(4, 121, 0.1)  # define frequencies of interest
 # freqs = np.arange(8, 121, 0.1)  # define frequencies of interest
 # n_cycles = freqs / 2.  # different number of cycle per frequency
-n_cycles = 3.
+n_cycles = 4.
 
 
 pow_list = list()
@@ -124,23 +128,20 @@ for ix_c, c in enumerate([exp_sup_lon, exp_sup_sho]):
 
     pow_list.append(power.copy())
     for ix_ch, ch in enumerate(picks):
-        if ch == picks[0]:
-            vmax = 5
-        else:
-            vmax = 5
+        vmax = 3
 
-        power.average().plot(picks=[ix_ch], baseline=(bs_min, bs_max), mode='zscore', fmin=5, fmax=120, tmin=-0.4, tmax=0.4,
-                             vmax=vmax, vmin=-vmax, axes=axes[ix_ch, ix_c], colorbar=None)
+        # power.average().plot(picks=[ix_ch], baseline=(bs_min, bs_max), mode='zscore', fmin=5, fmax=120, tmin=-0.4, tmax=0.4,
+        #                      vmax=vmax, vmin=-vmax, axes=axes[ix_ch, ix_c], colorbar=None)
 
-        # power.average().plot(picks=[ix_ch], baseline=(bs_min, bs_max), mode='mean', fmin=5, fmax=120, tmin=-0.4, tmax=0.4,
-        #                      axes=axes[ix_ch, ix_c], colorbar=None)
+        power.average().plot(picks=[ix_ch], baseline=(bs_min, bs_max), mode='mean', fmin=4, fmax=120, tmin=-0.4, tmax=0.4,
+                             axes=axes[ix_ch, ix_c], colorbar=None)
         axes[ix_ch, ix_c].set_title(exp_sup_lon.info['ch_names'][ch])
 
 tf_fig.tight_layout()
-tf_fig.savefig(op.join(study_path, 'figures', 'tf_intra.png'), format='png', dpi=300)
+tf_fig.savefig(op.join(study_path, 'figures', 'tf_intra_mean.png'), format='png', dpi=300)
 
 # Transform to z-score from baseline
-pows_corr = [p.copy().apply_baseline(mode='zscore', baseline=(-0.95, -0.75)) for p in pow_list]
+pows_corr = [p.copy().apply_baseline(mode='mean', baseline=(-0.95, -0.75)) for p in pow_list]
 channels = pows_corr[0].info['ch_names']
 
 # Single Trial Plot
@@ -193,16 +194,8 @@ for ix_ch, ch in enumerate(channels):
     dats.append(dat_ok)
 
     print(len(dat_ok[0]), len(dat_ok[1]))
-    t_real, p_real = ttest_ind(dat_ok[0], dat_ok[1])
 
-    t_list = list()
-    for per in range(int(n_perm)):
-        joint = np.concatenate((dat_ok[0], dat_ok[1]))
-        np.random.shuffle(joint)
-        split = np.array_split(joint, 2)
-        t_perm, p_perm = ttest_ind(split[0], split[1])
-        t_list.append(t_perm)
-    p_permuted = len(np.where(t_list > t_real)[0]) / n_perm
+    t_real, p_real, t_list, p_permuted = permutation_test(dat_ok, n_perm)
 
     p_vals.append(p_permuted)
 
@@ -280,47 +273,108 @@ for ix_c, c in enumerate(conds):
     tfr.plot(picks=[83], vmin=-1, vmax=1, cmap='viridis', title=c)
 
 
+# TF ROI
+if ref == 'avg':
+    rois = {'HP_r': np.array(raw.ch_names)[picks[:4]], 'HP_l': np.array(raw.ch_names)[picks[4:]]}
+elif ref == 'bip':
+    rois = {'HP_l': np.array(raw.ch_names)[picks[:3]], 'HP_r': np.array(raw.ch_names)[picks[3:]]}
+
+roi_fig, axes = plt.subplots(len(rois), len(conds), sharey=True, sharex=True)
+roi_pows = {'HP_l': list(), 'HP_r': list()}
+
+for ix_c, c in enumerate(conds):
+    for ix_r, r in enumerate(rois):
+        roi = rois[r]
+        roi_pow = pow_list[ix_c].copy()
+        roi_pow.pick_channels(roi)
+        roi_pow.data = np.mean(roi_pow.data, 1, keepdims=True)
+        roi_pow.info['chs'] = [roi_pow.info['chs'][0]]
+        roi_pow.average().plot(baseline=(bs_min, bs_max), mode='zscore', tmin=-0.4, tmax=0.4, vmin=-5, vmax=5,
+                               fmin=4, fmax=120, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
+        # roi_pow.average().plot(baseline=(bs_min, bs_max), mode='mean', tmin=-0.4, tmax=0.4,
+        #                        fmin=4, fmax=120, picks=[0], axes=axes[ix_r, ix_c], colorbar=False)
+
+        axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
+        axes[ix_r, ix_c].set_title(r)
+
+        roi_pows[r].append(roi_pow)
+
+
+# ROI Stats
+roi_stat_fig, axes = plt.subplots(len(rois), 2)
+p_vals = list()
+for ix_r, r in enumerate(rois):
+    if ix_r == 0:
+        ch_nrs = np.arange(0, 4)
+    else:
+        ch_nrs = np.arange(4, 8)
+
+    dat_lon = np.mean(pow_win[0][:, ch_nrs], axis=1)
+    dat_sho = np.mean(pow_win[1][:, ch_nrs], axis=1)
+
+    dat_ok = [[tr for tr in dat if (tr < np.mean(dat) + 3 * np.std(dat)) and
+              (tr > np.mean(dat) - 3 * np.std(dat))] for dat in [dat_lon, dat_sho]]
+
+    t_real, p_real, t_list, p_permuted = permutation_test(dat_ok, n_perm)
+    p_vals.append(p_permuted)
+
+    axes[ix_r, 0].violinplot([dat_ok[0], dat_ok[1]], showmeans=True)
+    # axes[ix_ch, 0].boxplot([dat_ok[0], dat_ok[1]])
+    axes[ix_r, 0].set_ylabel('z-score')
+    axes[ix_r, 0].set_title(r)
+    # axes[ix_ch, 0].set_ylim(-10, 15)
+    axes[ix_r, 1].hist(t_list, bins=50, facecolor='black')
+    axes[ix_r, 1].vlines(t_real, ymin=0, ymax=900, linestyles='--')
+    axes[ix_r, 1].set_ylim(-5, 900)
+    axes[ix_r, 1].set_xlim(-5, 5)
+    roi_stat_fig.suptitle('ROI {}-{} Hz Power \n {} to {}ms'.format(fmin, fmax, int(tmin * 1000), int(tmax * 1000)))
+
+p_vals_corr = multipletests(p_vals, 0.05, 'holm')[1]
+print(p_vals_corr)
+
 
 # ----------- END-----------
-# plt.plot(power.times, np.mean(pows_corr[0].data[:, 0, :, :], axis=2))
-# power_bs.apply_baseline(mode='logratio', baseline=(-0.7, -0.4)).average().plot([1], fmin=1, fmax=120, tmin=-0.6, tmax=0.6, vmax=0.5, vmin=-0.5)
-# power.average().apply_baseline(mode='logratio', baseline=(-0.7, -0.4)).plot([1], fmin=1, fmax=120, tmin=-0.6, tmax=0.6, vmax=0.5, vmin=-0.5)
-#
-# power_lon = pows_corr[0].crop(-0.4, 0.4)
-# power_sho = pows_corr[1].crop(-0.4, 0.4)
-# # power_bs.average().plot([1])
-#
-# power_c1 = power_lon.data[:, 1, :, :]
-# power_c2 = power_sho.data[:, 1, :, :]
+power_lon = pows_corr[0].crop(-0.4, 0.4)
+power_sho = pows_corr[1].crop(-0.4, 0.4)
+
+
+r = 'HP_r'
+roi_pows_corr = [p.copy().apply_baseline(mode='zscore', baseline=(-0.95, -0.75)) for p in roi_pows[r]]
+
+power_lon = roi_pows_corr[0].crop(-0.4, 0.4)
+power_sho = roi_pows_corr[1].crop(-0.4, 0.4)
+
+power_c1 = power_lon.data[:, 0, :, :]
+power_c2 = power_sho.data[:, 0, :, :]
 #
 # threshold = None
-# T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c1, n_permutations=100, threshold=threshold, tail=1)
+# T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c1, n_permutations=1000, threshold=threshold, tail=1)
 #
-# # threshold = None
-# # T_obs, clusters, cluster_p_values, H0 = \
-# #     permutation_cluster_test([power_c1, power_c2],
-# #                              n_permutations=100, threshold=threshold, tail=0)
-#
-#
-# times = 1e3 * power_lon.times
-# T_obs_plot = np.nan * np.ones_like(T_obs)
-# for c, p_val in zip(clusters, cluster_p_values):
-#     if p_val <= 0.05:
-#         T_obs_plot[c] = T_obs[c]
-#
-# vmax = np.max(np.abs(T_obs))
-# vmin = -vmax
-#
-# plt.subplot(1, 1, 1)
-# plt.imshow(T_obs, cmap=plt.cm.gray,
-#            extent=[times[0], times[-1], freqs[0], freqs[-1]],
-#            aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-# plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
-#            extent=[times[0], times[-1], freqs[0], freqs[-1]],
-#            aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-#
-# plt.colorbar()
-# plt.xlabel('Time (ms)')
-# plt.ylabel('Frequency (Hz)')
-# #plt.title('Induced power (%s)' % ch_name)
-#
+threshold = None
+T_obs, clusters, cluster_p_values, H0 = \
+    permutation_cluster_test([power_c1, power_c2],
+                             n_permutations=1000, threshold=threshold, tail=1)
+
+
+times = 1e3 * power_lon.times
+T_obs_plot = np.nan * np.ones_like(T_obs)
+for c, p_val in zip(clusters, cluster_p_values):
+    if p_val <= 0.05:
+        T_obs_plot[c] = T_obs[c]
+
+vmax = np.max(np.abs(T_obs))
+vmin = -vmax
+
+plt.subplot(1, 1, 1)
+plt.imshow(T_obs, cmap=plt.cm.gray,
+           extent=[times[0], times[-1], freqs[0], freqs[-1]],
+           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
+           extent=[times[0], times[-1], freqs[0], freqs[-1]],
+           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+
+plt.colorbar()
+plt.xlabel('Time (ms)')
+plt.ylabel('Frequency (Hz)')
+# plt.title('Induced power (%s)' % ch_name)
+

@@ -1,6 +1,7 @@
 study_path = '/Volumes/FAT/Time/ETG_scalp/'
 data_path = study_path + 'bdf/'
 log_path = '/Users/lpen/Documents/Experimentos/Drowsy Time/TimeGeneralization/analisis/scalp_behaviour/logs'
+conditions = ['lon', 'sho']
 
 n_jobs = 2
 
