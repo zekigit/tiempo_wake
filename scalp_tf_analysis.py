@@ -25,8 +25,8 @@ n_cycles = 3.
 conds = ['Longer', 'Shorter']
 fmin = 8
 fmax = 12
-tmin = -0.1
-tmax = 0.1
+tmin = -0.15
+tmax = 0.15
 
 
 # LOAD
@@ -135,7 +135,7 @@ for ix_r, r in enumerate(sorted(rois)):
     axes[ix_r, 0].violinplot([pow_lon_win_ok, pow_sho_win_ok], showmeans=True)
     axes[ix_r, 0].set_ylabel('z-score')
     # axes[ix_r, 0].set_ylabel('mean')
-    #axes[ix_r, 0].set_ylim(-10, 15)
+    axes[ix_r, 0].set_ylim(-7, 12)
     axes[ix_r, 1].hist(t_list, bins=50, facecolor='black')
     axes[ix_r, 1].vlines(t_real, ymin=0, ymax=900, linestyles='--')
     axes[ix_r, 1].set_ylim(-5, 900)
@@ -180,47 +180,53 @@ pow_plot.savefig(op.join(study_path, 'figures', 'sclap_tf_chart.png'), format='p
 
 
 # ---- END ------
-r = 'f'
+
+r = 'e'
 mode = 'zscore'
-roi_pows_corr_lon = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_lon[r]]
-roi_pows_corr_sho = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_sho[r]]
 
-power_c1 = np.stack(roi_pows_corr_lon, axis=0).squeeze()
-power_c2 = np.stack(roi_pows_corr_sho, axis=0).squeeze()
+for r in sorted(rois.keys()):
+    roi_pows_corr_lon = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_lon[r]]
+    roi_pows_corr_sho = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_sho[r]]
 
+    power_c1 = np.stack(roi_pows_corr_lon, axis=0).squeeze()
+    power_c2 = np.stack(roi_pows_corr_sho, axis=0).squeeze()
 
-# threshold = None
-# T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c2, n_permutations=100, threshold=threshold, tail=1)
+    # threshold = None
+    # T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c2, n_permutations=100, threshold=threshold, tail=1)
 
-threshold = {'start': 0, 'step': 1}
-T_obs, clusters, cluster_p_values, H0 = \
-    permutation_cluster_test([power_c1, power_c2],
-                             n_permutations=100, threshold=threshold, tail=1)
+    threshold = None
+    T_obs, clusters, cluster_p_values, H0 = \
+        permutation_cluster_test([power_c1, power_c2],
+                                 n_permutations=1000, threshold=threshold, tail=0, n_jobs=n_jobs)
 
-times = np.linspace(-0.4, 0.4, power_c1.shape[2])
-times = 1e3 * times
+    times = np.linspace(-0.4, 0.4, power_c1.shape[2])
+    times = 1e3 * times
 
-T_obs_plot = np.nan * np.ones_like(T_obs)
-for c, p_val in zip(clusters, cluster_p_values):
-    if p_val <= 0.06:
-        T_obs_plot[c] = T_obs[c]
+    T_obs_plot = np.nan * np.ones_like(T_obs)
+    for c, p_val in zip(clusters, cluster_p_values):
+        if p_val <= 0.05:
+            T_obs_plot[c] = T_obs[c]
 
-vmax = np.max(np.abs(T_obs))
-vmin = -vmax
+    # vmax = np.max(np.abs(T_obs))
+    # vmin = -vmax
 
-plt.subplot(1, 1, 1)
-plt.imshow(T_obs, cmap=plt.cm.gray,
-           extent=[times[0], times[-1], freqs[0], freqs[-1]],
-           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
-           extent=[times[0], times[-1], freqs[0], freqs[-1]],
-           aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+    vmax = 12
+    vmin = -vmax
 
-plt.colorbar()
-plt.xlabel('Time (ms)')
-plt.ylabel('Frequency (Hz)')
-# plt.title('Induced power (%s)' % ch_name)
+    plt.subplot(1, 1, 1)
+    plt.imshow(T_obs, cmap=plt.cm.gray,
+               extent=[times[0], times[-1], freqs[0], freqs[-1]],
+               aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
+    plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
+               extent=[times[0], times[-1], freqs[0], freqs[-1]],
+               aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
 
+    plt.colorbar()
+    plt.xlabel('Time (ms)')
+    plt.ylabel('Frequency (Hz)')
+    # plt.title('Induced power (%s)' % ch_name)
+    plt.savefig(op.join(study_path, 'figures', 'Power_btw_conds_ROI_{}.svg' .format(r)), format='svg', dpi=300)
+    plt.clf()
 
 
 # # Subtraction

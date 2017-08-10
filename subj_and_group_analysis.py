@@ -68,7 +68,7 @@ def tf_single_trial(epochs, log):
     return log
 
 
-def calc_connect_over_time(epochs):
+def calc_wpli_over_time(epochs):
     cwt_freqs = np.arange(8, 30, 1)
     cwt_cycles = cwt_freqs / 4.
     epochs.crop(-0.7, 0.7)
@@ -82,7 +82,7 @@ def calc_connect_over_time(epochs):
     # tfr.plot_topo(fig_facecolor='w', font_color='k', border='k', vmin=0, vmax=1, cmap='viridis')
 
 
-def calc_connect_over_epochs(epochs):
+def calc_wpli_over_epochs(epochs):
     fmin = (1, 4, 8, 13, 30)
     fmax = (4, 7, 12, 30, 40)
 
@@ -94,7 +94,7 @@ def calc_connect_over_epochs(epochs):
              con=con, times=epochs.times, freqs=(fmin, fmax), nave=len(epochs), info=epochs.info, chans=epochs.info['ch_names'])
 
 
-def con_analysis_time(subjects, log):
+def wpli_analysis_time(subjects, log):
     conds = ['lon', 'sho']
     roi_cons = {}
     roi = rois['f']
@@ -161,9 +161,9 @@ def con_analysis_time(subjects, log):
     plt.title('ROI Connectivity')
 
 
-def con_analysis_epochs(subjects):
+def wpli_analysis_epochs(subjects):
     # load data
-    mats, freqs, chans = load_con_dat(subjects)
+    mats, freqs, chans = load_wpli_over_epochs(subjects)
 
     # load spatial structure
     connectivity, ch_names = mne.channels.read_ch_connectivity(
@@ -174,12 +174,12 @@ def con_analysis_epochs(subjects):
         for s in range(len(subjects)):
             mats[c][s, :, :, :] = create_con_mat(mats[c][s, :, :, :])
 
-    avg_mat = [np.nanmean(mats[x], axis=0) for x in mats]
+    avg_mat = {key: np.nanmean(x, axis=0) for (key, x) in mats.items()}
 
-    # plot
-    con_fig = plt.figure(figsize=(15, 10))
-    grid = ImageGrid(con_fig, 111,
-                     nrows_ncols=(2, 5),
+    # avg plot
+    subj_con_fig = plt.figure(figsize=(15, 5))
+    grid = ImageGrid(subj_con_fig, 111,
+                     nrows_ncols=(len(conditions), 5),
                      axes_pad=0.3,
                      cbar_mode='single',
                      cbar_pad='10%',
@@ -191,9 +191,42 @@ def con_analysis_epochs(subjects):
         else:
             im = ax.imshow(avg_mat[1][:, :, idx-5], vmin=0, vmax=0.4)
 
-    cb = con_fig.colorbar(im, cax=grid.cbar_axes[0])
+    cb = subj_con_fig.colorbar(im, cax=grid.cbar_axes[0])
     cb.ax.set_title('wPLI', loc='right')
 
+
+    # subjs plot
+    n_s = len(subjects)
+    n_f = freqs.shape[1]
+    n_c = len(conditions)
+
+    plt_s = np.tile(np.arange(n_s), n_f*n_c)
+    plt_c = np.tile(np.concatenate((np.repeat(0, n_s), np.repeat(1, n_s))), n_f)
+    plt_f = np.repeat(np.arange(0, 5), n_s*n_c)
+
+    plt.style.use('ggplot')
+    subj_con_fig = plt.figure(figsize=(15, 10))
+    grid = ImageGrid(subj_con_fig, 111,
+                     nrows_ncols=(len(conditions)*freqs.shape[1], len(subjects)),
+                     axes_pad=0.05,
+                     share_all=True,
+                     aspect=True,
+                     cbar_mode='single',
+                     cbar_pad='10%',
+                     cbar_location='right')
+
+    for (idx, ax), s, c, f in zip(enumerate(grid), plt_s, plt_c, plt_f):
+        print(idx, s, c, f)
+        im = ax.imshow(mats[conditions[c]][s, :, :, f], vmin=0, vmax=0.7)
+        ax.set_xticks([], [])
+        ax.set_yticks([], [])
+        ax.grid(False)
+
+    cb = subj_con_fig.colorbar(im, cax=grid.cbar_axes[0], ticks=np.arange(0, 1.1, 0.1))
+    cb.ax.set_title('wPLI', loc='right')
+    subj_con_fig.savefig(op.join(study_path, 'figures', 'subj_wpli.eps'), format='eps', dpi=300)
+
+    # channel mean
     avg_ch_mat = [np.nanmean(mats[x], axis=2) for x in mats]
     avg_ch_mat = [np.transpose(x, (0, 2, 1)) for x in avg_ch_mat]
 
@@ -202,9 +235,9 @@ def con_analysis_epochs(subjects):
     # plt.colorbar()
 
     threshold = dict(start=0, step=0.1)
-    n_perm = 1000
+    n_perm = 100
 
-    fq_dat = [mats[x][:, :, :, 2] for x in mats]
+    fq_dat = [np.nan_to_num(mats[x][:, :, :, 2]) for x in mats]
     fq_dat = np.nan_to_num(fq_dat)
 
     T_obs, clusters, cluster_p_values, H0 = permutation_cluster_test(fq_dat, n_permutations=n_perm, connectivity=connectivity,
@@ -213,9 +246,7 @@ def con_analysis_epochs(subjects):
     plt.hist(cluster_p_values)
 
 
-
-
-def load_con_dat(subjects, save=False):
+def load_wpli_over_epochs(subjects, save=False):
     mats = dict(lon=list(), sho=list())
     for s in subjects:
         for c in conditions:
@@ -292,7 +323,7 @@ def plot_decoding(subj_scores):
     ticks_labels = [-0.25, 0, -0.5, -0.25, 0, 0.25, 0.5]
 
     gat_fig, ax = plt.subplots(1, 1)
-    cax = ax.imshow(mean_gat, origin='lower', vmin=0.4, vmax=0.7, cmap='RdBu_r')
+    cax = ax.imshow(mean_gat, origin='lower', vmin=0.5, vmax=0.65, cmap='plasma')
     ax.set_xticks(ticks)
     ax.set_yticks(ticks)
     ax.set_xticklabels(ticks_labels)
@@ -305,8 +336,6 @@ def plot_decoding(subj_scores):
     ax.set_xlabel('Testing Time (s)')
     cbar = gat_fig.colorbar(cax, ticks=np.arange(0.4, 0.7, 0.05))
     gat_fig.savefig(op.join(study_path, 'figures', 'group_gat.eps'), format='eps', dpi=300)
-
-
 
     ax.set_xticklabels([-0.25, 0, 0.25, 0.5])
 
@@ -329,7 +358,7 @@ if __name__ == '__main__':
         for cond in [lon, sho]:
             # log = tf_single_trial(cond, log)
             log = log.dropna()
-            # calc_connect(cond)
+            # calc_wpli_over_epochs(cond)
         all_s_dat.append(log)
 
     # Log
@@ -340,5 +369,5 @@ if __name__ == '__main__':
     plot_decoding(all_scores)
 
     # Connectivity analysis
-    all_dat = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
-    con_analysis_time(subj, all_dat, lon.info)
+    #  all_dat = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
+    #  wpli_analysis_time(subj, all_dat, lon.info)
