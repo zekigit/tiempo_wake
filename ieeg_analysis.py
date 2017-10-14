@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from etg_ieeg_info import dat_path, files, n_jobs, log_path, marks, marks_exp, marks_p, study_path
 from eeg_etg_fxs import read_log_file, check_events, durations_from_log_ieeg, create_events, add_event_condition, make_exp_baseline, \
     add_event_tr_id, permutation_t_test
-from ieeg_fx import make_bip_chans, permutation_test
+from ieeg_fx import make_bip_chans, permutation_test, make_bnw_nodes
 import pandas as pd
 from mne.stats import permutation_cluster_1samp_test, permutation_cluster_test
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -369,7 +369,7 @@ for r in ['HP_r', 'HP_l']:
     plt.imshow(T_obs, cmap=plt.cm.gray,
                extent=[times[0], times[-1], freqs[0], freqs[-1]],
                aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
-    plt.imshow(T_obs_plot, cmap=plt.cm.RdBu_r,
+    plt.imshow(T_obs_plot, cmap=plt.cm.Spectral,
                extent=[times[0], times[-1], freqs[0], freqs[-1]],
                aspect='auto', origin='lower', vmin=vmin, vmax=vmax)
 
@@ -382,3 +382,8 @@ for r in ['HP_r', 'HP_l']:
 
 
 # Plot electrode location
+ch_info = pd.read_pickle('/Users/lpen/Documents/wake_sleep/study/s3/info/s3_avg_info_coords.pkl')
+ch_plot = ch_info[ch_info.Electrode.isin(np.concatenate([rois['HP_l'], rois['HP_r']]))]
+coords = np.array(ch_plot[['natX', 'natY', 'natZ']])
+node_file = op.join(study_path, 'info', 'etg_roi_plot.node')
+make_bnw_nodes(node_file, coords, sizes=3.0, colors=1.0)

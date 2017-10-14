@@ -1,7 +1,7 @@
 import mne
 import numpy as np
 import os.path as op
-from etg_scalp_info import study_path, data_path, log_path, subjects, sessions, bad_channs, ch_to_remove, marks, n_jobs
+from etg_scalp_info import study_path, data_path, log_path, subjects, sessions, bad_channs, marks, n_jobs
 from eeg_etg_fxs import read_log_file, check_events, durations_from_log, create_events, add_event_condition
 
 

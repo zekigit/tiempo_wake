@@ -251,3 +251,17 @@ def permutation_test(dat_list, n_perm):
         t_list.append(t_perm)
     p_permuted = len(np.where(t_list > t_real)[0]) / n_perm
     return t_real, p_real, t_list, p_permuted
+
+
+def make_bnw_nodes(file_nodes, coords, colors, sizes):
+    if isinstance(colors, float):
+        colors = [colors] * len(coords)
+    if isinstance(sizes, float):
+        sizes = [sizes] * len(coords)
+
+    nodes = np.column_stack((coords, colors, sizes))
+    np.savetxt(file_nodes, nodes, delimiter='\t')
+
+
+def make_nearest_wm_ref(ch_info):
+    pass

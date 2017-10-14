@@ -4,6 +4,7 @@ import pandas as pd
 import mne
 from scipy.stats import ttest_rel
 from mpl_toolkits.axes_grid1 import ImageGrid
+import os.path as op
 
 
 def check_events(events):
@@ -171,3 +172,69 @@ def create_con_mat(con):
         for val in zip(upper[0], upper[1]):
             con_mat[:, :, fq][val] = swap[val]
     return con_mat
+
+
+def get_subj_info(subjects):
+    log_path = '/Users/lpen/Documents/Experimentos/Drowsy Time/TimeGeneralization/analisis/scalp_behaviour/logs'
+    subj_table = {'lastname': [], 'age': [], 'tot_duration': []}
+    for s in subjects:
+        durations = []
+        for ses in [1, 2, 3]:
+            fname = op.join(log_path, 'ETG_scalp_su{}_se{}.mat' .format(s, ses))
+            if op.isfile(fname):
+                subj_dat = spio.loadmat(fname)
+                ses_duration = subj_dat['Results'][-1, 12] - subj_dat['Results'][0, 3]
+                durations.append(ses_duration)
+
+                if ses == 1:
+                    subj_table['lastname'].append(subj_dat['Info'][0][1].item())
+                    if subj_dat['Info'][0][2].size > 0:
+                        subj_table['age'].append(subj_dat['Info'][0][2].item())
+                    else:
+                        subj_table['age'].append('None')
+        subj_table['tot_duration'].append(np.sum(np.array(durations) / 2))
+    df_subj_info = pd.DataFrame(subj_table)
+
+    df_subj_info['age'].iloc[0] = 32
+    df_subj_info['age'].iloc[1] = 25
+    df_subj_info['age'].iloc[2] = 22
+    print('Mean Duration: ', df_subj_info['tot_duration'].mean() / 60)
+    print('Std Duration: ', df_subj_info['tot_duration'].std())
+
+
+def set_dif_and_rt_exp(log):
+    def set_dif(row):
+        if row['Order'] == 2.0:
+            val = row['Standard'] - row['Comparison']
+        else:
+            val = row['Comparison'] - row['Standard']
+        return val/1000
+
+    def set_rt_exp(row):
+        if row.condition == 90:
+            val = row['RT'] + row['dif']
+        elif row.condition == 70:
+            val = row['RT'] - np.abs(row['dif'])
+        return val
+
+    log['dif'] = log.apply(set_dif, axis=1)
+    log['rt_exp'] = log.apply(set_rt_exp, axis=1)
+    return log
+
+
+def permutation_pearson(x, y, n_perm):
+    from scipy.stats import pearsonr
+    r, p = pearsonr(x, y)
+
+    r_perm_dist = list()
+    for n in range(n_perm):
+        y_rand = y.copy()
+        np.random.shuffle(y_rand)
+        r_perm, p_perm = pearsonr(x, y_rand)
+        r_perm_dist.append(r_perm)
+    if r > 0:
+        p_permuted = sum(r_perm_dist>r) / n_perm
+    else:
+        p_permuted = sum(r_perm_dist<r) / n_perm
+    return r, p_permuted
+
