@@ -106,6 +106,9 @@ exp_sup_lon.apply_baseline(baseline=(bs_min, bs_max))
 exp_sup_sho.apply_baseline(baseline=(bs_min, bs_max))
 
 
+
+
+
 for ix, ep in enumerate([exp_sup_lon, exp_sup_sho]):
     ep.drop_channels(ep.info['bads'])
     ep.save(op.join(study_path, 'data', 'P14_{}-epo.fif' .format(conds[ix])))
@@ -345,13 +348,19 @@ for r in ['HP_r', 'HP_l']:
     power_c1 = power_lon.data[:, 0, :, :]
     power_c2 = power_sho.data[:, 0, :, :]
     #
-    # threshold = None
-    # T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c1, n_permutations=1000, threshold=threshold, tail=1)
-    #
     threshold = None
-    T_obs, clusters, cluster_p_values, H0 = \
-        permutation_cluster_test([power_c1, power_c2],
-                                 n_permutations=500, threshold=threshold, tail=0)
+    T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c2, n_permutations=1000, threshold=threshold, tail=1)
+
+    # threshold = None
+    # T_obs, clusters, cluster_p_values, H0 = \
+    #     permutation_cluster_test([power_c1, power_c2],
+    #                              n_permutations=500, threshold=threshold, tail=0)
+
+    p_val = 0.01
+    good_cluster_inds = np.where(cluster_p_values < p_val)[0]
+    print(good_cluster_inds)
+    print(len(good_cluster_inds))
+
 
     times = 1e3 * power_lon.times
     T_obs_plot = np.nan * np.ones_like(T_obs)
@@ -377,7 +386,9 @@ for r in ['HP_r', 'HP_l']:
     plt.xlabel('Time (ms)')
     plt.ylabel('Frequency (Hz)')
     # plt.title('Induced power (%s)' % ch_name)
-    plt.savefig(op.join(study_path, 'figures', 'iEEG_Power_btw_conds_ROI_{}.svg'.format(r)), format='svg', dpi=300)
+    plt.savefig(op.join(study_path, 'figures', 'iEEG_Power_vs_base_ROI_{}_sho.svg'.format(r)), format='svg', dpi=300)
+
+    # plt.savefig(op.join(study_path, 'figures', 'iEEG_Power_btw_conds_ROI_{}.svg'.format(r)), format='svg', dpi=300)
     plt.clf()
 
 

@@ -7,7 +7,6 @@ from mne.stats import permutation_cluster_test, spatio_temporal_cluster_1samp_te
 from mne.decoding import TimeDecoding, GeneralizationAcrossTime
 from sklearn.metrics import roc_auc_score
 from sklearn.cross_validation import StratifiedKFold
-from sklearn.svm import SVC
 from etg_scalp_info import study_path, subjects, n_jobs, rois, conditions
 from eeg_etg_fxs import create_con_mat, set_dif_and_rt_exp, permutation_pearson
 import matplotlib.pyplot as plt
@@ -301,17 +300,67 @@ def decoding_analysis(c1, c2):
 
 
 def decoding_x_acc(epochs, log):
-    clf = SVC(C=1, kernel='linear')
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.feature_selection import SelectKBest, f_regression
+    from sklearn.svm import SVC, SVR
+    from sklearn.linear_model import LassoLars, Ridge
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from imblearn.over_sampling import SMOTE
+    from sklearn.model_selection import cross_val_score, train_test_split
 
-    # GAT
-    y = np.array(log.loc[log.condition == 90, 'Response'])
-    y[np.isnan(y)] = 0.
-    epochs.events[:, 2] = y
+    #clf = RandomForestClassifier(n_estimators=20)
 
-    td = TimeDecoding(predict_mode='cross-validation', n_jobs=1, scorer=roc_auc_score)
-    td.fit(epochs, y=y)
-    td.score(epochs)
-    td.plot('Subject: ', epochs.info['subject_info'], chance=True)
+    # clf = make_pipeline(StandardScaler(),  # z-score normalization
+    #                     RandomForestClassifier())
+
+    clf = make_pipeline(StandardScaler(),   # z-score normalization
+                        LassoLars())
+
+    cvs = 3
+
+    sub_log = log[log.condition == 90]
+
+    # all_x = epochs.get_data()
+    # y = sub_log.Response.values
+    # y[np.isnan(y)] = 0
+
+    y = sub_log.RT.values
+    all_x = epochs[~np.isnan(y)].get_data()
+    y = y[~np.isnan(y)]
+
+    times = epochs.times
+
+    scores = list()
+    for s in range(len(epochs.times)):
+        x = all_x[:, :, s]
+
+        cv_scores = list()
+        for cv in range(cvs):
+            x_tr, x_val, y_tr, y_val = train_test_split(x, y)
+            # x_resam, y_resam = SMOTE(k_neighbors=3).fit_sample(x_tr, y_tr)
+            # clf.fit(x_resam, y_resam)
+
+            anova_filt = SelectKBest(f_regression, k=20)
+            anova_reg = make_pipeline(anova_filt, clf)
+
+            anova_reg.fit(x_tr, y_tr)
+            s_score = anova_reg.score(x_val, y_val)
+            cv_scores.append(s_score)
+        scores.append(np.mean(cv_scores))
+    plt.plot(times, scores), plt.ylim(-1, 1)
+
+
+
+    # # GAT
+    # y = np.array(log.loc[log.condition == 90, 'Response'])
+    # y[np.isnan(y)] = 0.
+    # epochs.events[:, 2] = y
+    #
+    # td = TimeDecoding(predict_mode='cross-validation', n_jobs=1, scorer=roc_auc, clf=clf)
+    # td.fit(epochs, y=y)
+    # td.score(epochs)
+    # td.plot('Subject: ', epochs.info['subject_info'], chance=True)
 
     # cv = StratifiedKFold(y=y)  # do a stratified cross-validation
     #
@@ -325,7 +374,7 @@ def decoding_x_acc(epochs, log):
     # # # plot
     # gat.plot(vmin=0, vmax=1)
     # gat.plot_diagonal()
-    return td
+    return scores
 
 
 def stats_decoding(scores):
@@ -420,6 +469,39 @@ def plot_decoding(subj_scores):
     plt.xticks(ticks, ticks_labels)
 
 
+def plot_decoding_acc(subjects):
+    all_scores = []
+
+    for s in subjects:
+        dec_file = op.join(study_path, 'results', 'decoding', '%s_gat_res.pickle' % s)
+        if op.isfile(dec_file):
+            with open(dec_file, 'rb') as handle:
+                all_scores.append(pickle.load(handle))
+    scores = [sc.scores_ for sc in all_scores]
+    times = all_scores[0].times_['times']
+
+    scores_arr = np.array(scores)
+    mean_sco = np.mean(scores_arr, axis=0)
+    sem_sco = sem(scores_arr, axis=0)
+    p_vals_td = stats_decoding(scores_arr)
+
+    t_masks = [[times < -0.7], [times > -0.7]]
+    dec_fig, axes = plt.subplots(1, 2, sharey=True, gridspec_kw={'width_ratios': [1, 3]})
+    for ix_m, m in enumerate(t_masks):
+        axes[ix_m].plot(times[m], mean_sco[m])
+        axes[ix_m].fill_between(times[m], mean_sco[m]+sem_sco[m], mean_sco[m]-sem_sco[m], alpha=0.3)
+        axes[ix_m].set_ylim(0.45, 0.7)
+        axes[ix_m].fill_between(times[m], 0.45, 0.7, where=p_vals_td[m] < 0.05, alpha=0.1, color='k')
+
+    axes[0].set_xlim(-0.95, -0.7)
+    axes[0].hlines(0.5, xmin=axes[0].get_xlim()[0], xmax=axes[0].get_xlim()[1], linestyles=':')
+    axes[1].hlines(0.5, xmin=axes[1].get_xlim()[0], xmax=axes[1].get_xlim()[1], linestyles=':')
+    axes[1].vlines(0, ymin=axes[1].get_ylim()[0], ymax=axes[1].get_ylim()[1], linestyles='--')
+    axes[1].set_xlim(-0.7, 0.7)
+    axes[0].set_ylabel('Classification Performance (AUC)')
+    dec_fig.tight_layout(w_pad=0.1)
+
+
 def behavior_graphs(log_df):
     def set_dif(row):
         if row['Order'] == 2.0:
@@ -476,6 +558,8 @@ def behavior_graphs(log_df):
 def test_measures_corr(subjects):
     from pandas.plotting import scatter_matrix
     from statsmodels.sandbox.stats import multicomp
+    from mne.stats import permutation_t_test
+    from scipy.stats import wilcoxon
     plt.style.use('ggplot')
 
     log_df = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
@@ -506,6 +590,11 @@ def test_measures_corr(subjects):
     ax[2].vlines(0, ymin=0.5, ymax=0.65, linestyles='--')
 
     corr_dat = pd.read_csv(op.join(study_path, 'tables', 'pow_table.csv'))
+    corr_dat = corr_dat.drop('Unnamed: 0', axis=1)
+    conn_dat = pd.read_csv(op.join(study_path, 'tables', 'conn_x_subj_lon_sho.csv'), header=None)
+    corr_dat['conn_lon'] = conn_dat[0]
+    corr_dat['conn_sho'] = conn_dat[1]
+    corr_dat['conn_dif'] = corr_dat['conn_lon'] - corr_dat['conn_sho']
     rt_lon = log_df[log_df.condition == 90][['RT']].groupby(log_df['subject'], as_index=False).agg([np.nanmedian])['RT']['nanmedian'].tolist()
     rt_sho = log_df[log_df.condition == 70][['RT']].groupby(log_df['subject'], as_index=False).agg([np.nanmedian])['RT']['nanmedian'].tolist()
     rt = log_df[['RT']].groupby(log_df['subject'], as_index=False).agg([np.nanmedian])['RT']['nanmedian'].tolist()
@@ -517,42 +606,64 @@ def test_measures_corr(subjects):
     corr_dat['clf_lat'] = clf_lat
     corr_dat['acc_lon'] = log_df[log_df.condition == 90][['Accuracy']].groupby(log_df['subject'], as_index=False).agg(np.nanmean)
     corr_dat['acc_sho'] = log_df[log_df.condition == 70][['Accuracy']].groupby(log_df['subject'], as_index=False).agg(np.nanmean)
+    corr_dat['acc'] = log_df[['Accuracy']].groupby(log_df['subject'], as_index=False).agg(np.nanmean)
     corr_dat['rt_exp'] = log_df[log_df.condition == 70][['rt_exp']].groupby(log_df['subject'], as_index=False).agg(np.nanmedian)
-
+    corr_dat['abs'] = np.abs(corr_dat['clf_lat'] - corr_dat['rt_exp'])
+    corr_dat['pow_dif'] = np.abs(corr_dat['pow_lon'] - corr_dat['pow_sho'])
+    corr_dat.corr()
+    corr_dat.to_csv(op.join(study_path, 'tables', 'corr_table.csv'))
     # plt.style.use('classic')
     # scatter_matrix(corr_dat[['clf_pk', 'rt_lon', 'rt_sho']])
     # corr_dat.corr()
 
     n_perm = 10000
-    r_sho, p_sho = permutation_pearson(corr_dat['rt_sho'], corr_dat['clf_pk'], n_perm)
-    r_lon, p_lon = permutation_pearson(corr_dat['rt_lon'], corr_dat['clf_pk'], n_perm)
-    r_all, p_all = permutation_pearson(corr_dat['rt_exp'], corr_dat['clf_pk'], n_perm)
+    # r_sho, p_sho = permutation_pearson(corr_dat['rt_sho'], corr_dat['clf_pk'], n_perm)
+    # r_lon, p_lon = permutation_pearson(corr_dat['rt_lon'], corr_dat['clf_pk'], n_perm)
 
-    seaborn.regplot(corr_dat['rt_exp'], corr_dat['clf_pk'], ci=None)
-    plt.title('r = %0.3f  p = %0.3f' % (r_all, p_all))
+    r_dec_rt, p_dec_rt = permutation_pearson(corr_dat['rt'], corr_dat['clf_pk'], n_perm)
+    r_conn_rt, p_conn_rt = permutation_pearson(corr_dat['rt'], corr_dat['conn_dif'], n_perm)
+    r_tf_rt, p_tf_rt = permutation_pearson(corr_dat['rt'], corr_dat['pow_dif'], n_perm)
+
+    r_dec_lon, p_dec_lon = permutation_pearson(corr_dat['acc_lon'], corr_dat['clf_pk'], n_perm)
+    r_dec_sho, p_dec_sho = permutation_pearson(corr_dat['acc_sho'], corr_dat['clf_pk'], n_perm)
+
+    r_conn_lon, p_conn_lon = permutation_pearson(corr_dat['acc_lon'], corr_dat['conn_lon'], n_perm)
+    r_conn_sho, p_conn_sho = permutation_pearson(corr_dat['acc_sho'], corr_dat['conn_sho'], n_perm)
+
+    r_tf_lon, p_tf_lon = permutation_pearson(corr_dat['acc_lon'], corr_dat['pow_lon'], n_perm)
+    r_tf_sho, p_tf_sho = permutation_pearson(corr_dat['acc_sho'], corr_dat['pow_sho'], n_perm)
+
+    all_p = [p_dec_rt, p_conn_rt, p_tf_rt, p_dec_lon, p_dec_sho, p_conn_lon, p_conn_sho, p_tf_lon, p_tf_sho]
+
+    p_corr = multicomp.multipletests([p_dec_rt, p_conn_rt, p_tf_rt],
+                                     method='fdr_bh')
+
+    seaborn.regplot(corr_dat['rt'], corr_dat['clf_pk'], ci=None)
+    plt.title('r = %0.3f  p = %0.3f' % (r_dec_rt, p_dec_rt))
     plt.savefig(op.join(study_path, 'figures', 'clf_pk_vs_RT_all.eps'), dpi=300)
-    print(r_all, p_all)
 
-    fig, ax = plt.subplots(1, 3, sharey=True, sharex=False)
-    seaborn.regplot(corr_dat['rt_lon'], corr_dat['clf_pk'], ax=ax[0], ci=None)
-    seaborn.regplot(corr_dat['rt_sho'], corr_dat['clf_pk'], ax=ax[1], ci=None)
-    seaborn.regplot(corr_dat['rt'], corr_dat['clf_pk'], ax=ax[2], ci=None)
-    [ax[ix].set_title('r = {} p = {}' .format(round(r, 2), round(p, 4))) for ix, (r, p) in enumerate(zip([r_sho, r_lon, r_all], [p_sho, p_lon, p_all]))]
-    [ax[ix].set_ylabel('Max Classification Score (AUC)') for ix in range(len(ax))]
-    [ax[ix].set_xlabel('RT %s' % lab) for ix, lab in enumerate(['S2 Longer', 'S2 Shorter', ''])]
-    fig.savefig(op.join(study_path, 'figures', 'clf_pk_vs_RT.eps'), dpi=300)
+    fig, ax = plt.subplots(1, 2, sharey=True, sharex=True)
+    seaborn.regplot(corr_dat['acc_lon'], corr_dat['conn_dif'], ax=ax[0], ci=None)
+    seaborn.regplot(corr_dat['acc_sho'], corr_dat['conn_dif'], ax=ax[1], ci=None)
+    [ax[ix].set_title('r = {} p = {}' .format(round(r, 3), round(p, 3))) for ix, (r, p) in enumerate(zip([r_conn_lon, r_conn_sho],
+                                                                                                         [p_conn_lon, p_conn_sho]))]
+    [ax[ix].set_ylabel('Accuracy') for ix in range(len(ax))]
+    [ax[ix].set_xlabel('Connectivity Difference (wSMI) \n %s' % lab) for ix, lab in enumerate(['S2 Longer', 'S2 Shorter'])]
+    # ax[0].set_xlim(0, 0.05)
+    fig.savefig(op.join(study_path, 'figures', 'conn_vs_acc.eps'), dpi=300)
 
-    [ax[ix].set_title('r = {} p = {}' .format(round(r, 2), round(p, 4))) for ix, (r, p) in enumerate(zip([r_sho, r_lon], [p_sho, p_lon]))]
+    seaborn.regplot(corr_dat['pow_lon'], corr_dat['acc_lon'], ci=None)
+    plt.title('r = %0.3f p = %0.3f' % (r_tf_lon, p_tf_lon))
+    plt.savefig(op.join(study_path, 'figures', 'pow_lon_vs_acc_lon.eps'), dpi=300)
 
-    ax[0].set_title('r = {} p = {}' .format(round(r_sho, 2), round(p_sho, 4)))
-    ax[1].set_title('r = {} p = {}' .format(round(r_lon, 2), round(p_lon, 4)))
-
-
-
-    ax[0].scatter(corr_dat['rt_lon'], corr_dat['clf_pk']), ax[0].set_xlabel('RT S2 Longer'), ax[0].set_ylabel('Classification Peak')
-    ax[1].scatter(corr_dat['rt_sho'], corr_dat['clf_pk']), ax[1].set_xlabel('RT S2 Shorter'), ax[1].set_ylabel('Classification Peak')
+    seaborn.regplot(corr_dat['conn_lon'], corr_dat['acc_lon'], ci=None)
 
 
+    plt.violinplot([corr_dat['conn_lon'], corr_dat['conn_sho']])
+
+    T_obs, p_values, H0 = permutation_t_test(np.array(corr_dat['abs'], ndmin=2).T, n_permutations=10000, tail=1)
+    corr_dat['abs'].plot(kind='box')
+    plt.title('p = %.8f' % p_values[0])
 
 
 do_decoding = True
@@ -574,10 +685,11 @@ if __name__ == '__main__':
             # with open(dec_file, 'wb') as handle:
             #     pickle.dump(gat, handle, protocol=-1)
 
-            gat_acc = decoding_x_acc(lon, log)
-            dec_file = op.join(study_path, 'results', 'decoding', '%s_gat_res.pickle' % subj)
-            with open(dec_file, 'wb') as handle:
-                pickle.dump(gat_acc, handle, protocol=-1)
+            if log.loc[log.condition == 90][['Response']].agg(np.nanmean).values > 0.1:
+                gat_acc = decoding_x_acc(lon, log)
+                dec_file = op.join(study_path, 'results', 'decoding', '%s_gat_res.pickle' % subj)
+                with open(dec_file, 'wb') as handle:
+                    pickle.dump(gat_acc, handle, protocol=-1)
 
         # Single trial time-frequency & connectivity
         if do_tf:
@@ -598,6 +710,7 @@ if __name__ == '__main__':
 
     # Plot group decoding
     # plot_decoding(all_scores)
+
 
     # Connectivity analysis
     #  all_dat = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))

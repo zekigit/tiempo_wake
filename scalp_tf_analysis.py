@@ -2,13 +2,14 @@ import mne
 import os.path as op
 import numpy as np
 from mne.time_frequency import tfr_morlet
+from mne.channels import read_ch_connectivity
 from etg_scalp_info import study_path, subjects, n_jobs, ROI_d, ROI_i, rois
 from eeg_etg_fxs import permutation_t_test, set_dif_and_rt_exp
 import matplotlib.pyplot as plt
 import pandas as pd
 from natsort import natsorted
 from statsmodels.sandbox.stats.multicomp import multipletests
-from mne.stats import permutation_cluster_test, permutation_cluster_1samp_test
+from mne.stats import permutation_cluster_test, permutation_cluster_1samp_test, permutation_t_test
 from pandas.plotting import scatter_matrix
 
 
@@ -75,11 +76,14 @@ power = tfr_morlet(all_evo, freqs=freqs, n_cycles=n_cycles, use_fft=True, averag
 pows_lon = dict(a=list(), b=list(), c=list(), d=list(), e=list(), f=list())
 pows_sho = dict(a=list(), b=list(), c=list(), d=list(), e=list(), f=list())
 
+pow_x_subj = {'Longer': list(), 'Shorter': list()}
 for ix, cond in enumerate([exp_lon, exp_sho]):
     # pow_fig, axes = plt.subplots(nrows=6, ncols=16, sharey=True, sharex=True, figsize=(20, 10))
     for ix_s, s in enumerate(cond):
         power_subj = tfr_morlet(s, freqs=freqs, n_cycles=n_cycles, use_fft=True, average=True,
                                 return_itc=False, n_jobs=n_jobs)
+
+        pow_x_subj[conds[ix]].append(power_subj)
 
         for ix_r, r in enumerate(sorted(rois)):
             roi = rois[r]
@@ -200,22 +204,27 @@ r = 'e'
 mode = 'zscore'
 
 for r in sorted(rois.keys()):
-    roi_pows_corr_lon = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_lon[r]]
-    roi_pows_corr_sho = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.4, 0.4).data for p in pows_sho[r]]
+    roi_pows_corr_lon = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.5, 0.5).data for p in pows_lon[r]]
+    roi_pows_corr_sho = [p.copy().apply_baseline(mode=mode, baseline=(-0.95, -0.75)).crop(-0.5, 0.5).data for p in pows_sho[r]]
 
     power_c1 = np.stack(roi_pows_corr_lon, axis=0).squeeze()
     power_c2 = np.stack(roi_pows_corr_sho, axis=0).squeeze()
 
-    # threshold = None
-    # T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c2, n_permutations=100, threshold=threshold, tail=1)
-
     threshold = None
-    # threshold = {'start': 0, 'step': 0.2} # TFCE
-    T_obs, clusters, cluster_p_values, H0 = \
-        permutation_cluster_test([power_c1, power_c2],
-                                 n_permutations=1000, threshold=threshold, tail=0, n_jobs=n_jobs)
+    T_obs, clusters, cluster_p_values, H0 = permutation_cluster_1samp_test(power_c1, n_permutations=1000, threshold=threshold, tail=1)
 
-    times = np.linspace(-0.4, 0.4, power_c1.shape[2])
+    # threshold = None
+    # # threshold = {'start': 0, 'step': 0.2} # TFCE
+    # T_obs, clusters, cluster_p_values, H0 = \
+    #     permutation_cluster_test([power_c1, power_c2],
+    #                              n_permutations=1000, threshold=threshold, tail=0, n_jobs=n_jobs)
+
+    p_val = 0.01
+    good_cluster_inds = np.where(cluster_p_values < p_val)[0]
+    print(good_cluster_inds)
+    print(len(good_cluster_inds))
+
+    times = np.linspace(-0.5, 0.5, power_c1.shape[2])
     times = 1e3 * times
 
     T_obs_plot = np.nan * np.ones_like(T_obs)
@@ -241,7 +250,8 @@ for r in sorted(rois.keys()):
     plt.xlabel('Time (ms)')
     plt.ylabel('Frequency (Hz)')
     # plt.title('Induced power (%s)' % ch_name)
-    plt.savefig(op.join(study_path, 'figures', 'Power_btw_conds_ROI_{}.svg' .format(r)), format='svg', dpi=300)
+    # plt.savefig(op.join(study_path, 'figures', 'Power_btw_conds_ROI_{}.svg' .format(r)), format='svg', dpi=300)
+    plt.savefig(op.join(study_path, 'figures', 'Power_vs_base_ROI_{}_lon.svg' .format(r)), format='svg', dpi=300)
     plt.clf()
 
 
@@ -266,6 +276,10 @@ plt.violinplot(sig_pow_subj, showmeans=True)
 plt.ylabel('Cluster Power \n (z-score from baseline)')
 plt.xticks([1, 2], conds)
 
+T_obs_lon, p_value_lon, H0_lon = permutation_t_test(np.array(sig_pow_subj[0], ndmin=2).T, n_permutations=10000, tail=0)
+T_obs_sho, p_value_sho, H0_sho = permutation_t_test(np.array(sig_pow_subj[1], ndmin=2).T, n_permutations=10000, tail=0)
+p_corr = multipletests([p_value_lon[0], p_value_sho[0]], method='holm')
+
 
 # Get motor potential
 all_log = pd.read_csv(op.join(study_path, 'tables', 's_trial_dat.csv'))
@@ -289,7 +303,9 @@ mp_epochs_all = np.dstack(mp_epo_all)
 mp_epochs_avg = np.average(mp_epochs_all, axis=2)
 evk = mne.EvokedArray(mp_epochs_avg, s_epo.info)
 evk.times = np.linspace(-0.125, 0.125, 64)
+evk.apply_baseline((None, None))
 evk.plot_topo()
+
 evk.plot_topomap(np.linspace(-0.125, 0.125, 5))
 sho_evo.plot_topomap(np.linspace(-0.125, 0.125, 5))
 lon_evo.plot_topomap(np.linspace(-0.125, 0.125, 5))
@@ -332,6 +348,9 @@ for ix_c, c in enumerate([pows_lon, pows_sho]):
         axes[ix_r, ix_c].vlines(0, ymin=0, ymax=axes[ix_r, ix_c].get_ylim()[1], linestyles='--')
 
 pow_plot.savefig(op.join(study_path, 'figures', 'Power_each_cond_ROIs.png' .format(r)), format='png', dpi=300)
+
+
+
 
 # # Subtraction
 # conds_powers = list()
